@@ -56,10 +56,14 @@ Tortoise is a guest on council websites:
 
 ## Setup
 
-Python 3.11+.
+Python 3.11 (pinned in `.python-version`), managed with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-python -m pip install -e ".[dev]"
+# once: install uv
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"   # Windows
+# curl -LsSf https://astral.sh/uv/install.sh | sh                                     # macOS/Linux
+
+uv sync                     # creates .venv and installs the locked dependencies (uv.lock)
 cp .env.example .env        # fill in what you have; see the table below
 ```
 
@@ -83,18 +87,18 @@ tortoise config-check      # shows councils, zones, and any missing env vars
 temporal server start-dev --db-filename data/temporal.db
 
 # 3. In another terminal: the worker
-tortoise init-db
-tortoise worker
+uv run tortoise init-db
+uv run tortoise worker
 
 # 4. Try one run by hand on local Chrome (costs no Browserbase quota)
-tortoise run-once --council west-suffolk
+uv run tortoise run-once --council west-suffolk
 
 # 5. When it works: the Monday schedule (07:00 UK time)
-tortoise schedule add --council west-suffolk
-tortoise schedule add --council sevenoaks
+uv run tortoise schedule add --council west-suffolk
+uv run tortoise schedule add --council sevenoaks
 
 # 6. The Lazy Payoff log
-tortoise runs
+uv run tortoise runs
 ```
 
 ## Choosing councils
@@ -129,7 +133,7 @@ and pages you did not have to read, browser minutes, and the cost.
 The logic is tested offline so real browser minutes go only to real runs:
 
 ```bash
-python -m pytest      # 85 offline tests; no network, no Ollama, no browser
+uv run pytest         # 85 offline tests; no network, no Ollama, no browser
 ```
 
 The crawl flows run against a scripted fake browser (see

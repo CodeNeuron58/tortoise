@@ -20,11 +20,6 @@ dependencies = [
     "pydantic>=2.7",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0",
-]
-
 [project.scripts]
 tortoise = "tortoise.cli:main"
 
@@ -34,3 +29,8 @@ packages = ["src/tortoise"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
