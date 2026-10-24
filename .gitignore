@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# Environment and secrets
+.env
+
+# Runtime data (SQLite database, downloaded planning PDFs).
+# This data contains applicants' material and must never be published.
+data/
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS
+Thumbs.db
+.DS_Store

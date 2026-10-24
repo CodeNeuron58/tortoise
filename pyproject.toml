@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tortoise"
+version = "0.1.0"
+description = "A slow, steady weekly agent that reads your council's planning applications so you never have to."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Tortoise contributors" }]
+keywords = ["planning", "agent", "temporal", "stagehand", "ollama", "hacktoberfest"]
+dependencies = [
+    "stagehand>=0.3",
+    "temporalio>=1.7",
+    "openai>=1.40",
+    "pypdf>=5.0",
+    "python-dotenv>=1.0",
+    "pydantic>=2.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+tortoise = "tortoise.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tortoise"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
