@@ -79,6 +79,20 @@ def test_brief_fail_flag_forces_retryable_failure(runtime, monkeypatch):
 
 def test_ollama_down_flag_points_at_a_dead_port(runtime, monkeypatch):
     from tortoise.gemma import FilterUnavailableError
+    from tortoise.models import Application
+
+    # The filter loop only runs over stored applications, so seed one.
+    config, db = runtime.get()
+    db.upsert_application(
+        Application(
+            reference="26/0001/FUL",
+            council="west-suffolk",
+            address="14a Mill Rd",
+            proposal="Two-storey rear extension",
+            url="https://example.gov.uk/app/1",
+        ),
+        week="2026-W43",
+    )
 
     monkeypatch.setenv("TORTOISE_TEST_OLLAMA_DOWN", "1")
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://should-not-be-used:11434/v1")
