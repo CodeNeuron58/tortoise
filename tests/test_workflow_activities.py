@@ -82,6 +82,7 @@ def test_ollama_down_flag_points_at_a_dead_port(runtime, monkeypatch):
 
     monkeypatch.setenv("TORTOISE_TEST_OLLAMA_DOWN", "1")
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://should-not-be-used:11434/v1")
+    monkeypatch.setenv("GEMMA_MODEL", "gemma4:e4b")
     env = ActivityEnvironment()
     params = acts.FilterParams(council="west-suffolk", week="2026-W43")
     with pytest.raises(FilterUnavailableError):
