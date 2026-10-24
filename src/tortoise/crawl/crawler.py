@@ -67,11 +67,13 @@ class WeeklyListCrawler:
         council: Council,
         on_page: PageCallback | None = None,
         pause_range: tuple[float, float] = (5.0, 10.0),
+        start_page: int = 1,
     ) -> None:
         self._driver = driver
         self._council = council
         self._on_page = on_page
         self._pause_range = pause_range
+        self._start_page = max(1, start_page)
 
     async def _pause(self) -> None:
         if self._pause_range[1] > 0:
@@ -108,8 +110,15 @@ class WeeklyListCrawler:
     async def _paginate(self) -> CrawlListOutcome:
         outcome = CrawlListOutcome()
         seen: set[str] = set()
-        for page_number in range(1, MAX_LIST_PAGES + 1):
-            if page_number > 1:
+
+        # Resuming a retry: skip forward past pages already heartbeated by
+        # clicking Next without extracting (their rows are already stored).
+        for _ in range(1, self._start_page):
+            await self._pause()
+            await self._driver.act("click the Next page button")
+
+        for page_number in range(self._start_page, MAX_LIST_PAGES + 1):
+            if page_number > self._start_page:
                 await self._pause()
             page = await self._driver.extract(
                 "Extract every planning application row in the results list: its reference, "
@@ -118,8 +127,8 @@ class WeeklyListCrawler:
                 WeeklyListPage,
             )
             outcome.pages_read += 1
-            for row in page.rows:
-                application = self._row_to_application(row)
+            for row_ in page.rows:
+                application = self._row_to_application(row_)
                 if application and application.reference not in seen:
                     seen.add(application.reference)
                     outcome.applications.append(application)
@@ -130,10 +139,11 @@ class WeeklyListCrawler:
             await self._driver.act("click the Next page button")
         outcome.browser_seconds = self._driver.seconds_in_browser
         logger.info(
-            "%s: %d applications over %d pages",
+            "%s: %d applications over %d pages (from page %d)",
             self._council.slug,
             len(outcome.applications),
             outcome.pages_read,
+            self._start_page,
         )
         return outcome
 
