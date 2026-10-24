@@ -343,6 +343,33 @@ class Database:
                 ),
             )
 
+    def recent_runs(self, limit: int = 10) -> list[RunNumbers]:
+        """The most recent runs, newest first — the Lazy Payoff log."""
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM runs ORDER BY started_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [
+            RunNumbers(
+                council=row["council"],
+                week=row["week"],
+                status=row["status"],
+                listed=row["listed"],
+                kept=row["kept"],
+                pdfs_read=row["pdfs_read"],
+                pages_read=row["pages_read"],
+                browser_seconds=row["browser_minutes"] * 60.0,
+                gemma_seconds=row["gemma_seconds"],
+                input_tokens=row["input_tokens"],
+                cached_tokens=row["cached_tokens"],
+                output_tokens=row["output_tokens"],
+                cost_usd=row["cost_usd"],
+                brief_skipped_reason=row["brief_skipped_reason"],
+                unfiltered=bool(row["unfiltered"]),
+            )
+            for row in rows
+        ]
+
     def log_cost(
         self, council: str, week: str, call: str, model: str, usage: TokenUsage, cost_usd: float
     ) -> None:

@@ -23,6 +23,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
+from ..config import env_str
 from ..extract import extract_text
 from ..models import Application, CrawlMode, Council, ExtractedDocument, parse_uk_date
 from .documents import download_pdf_async, safe_filename, select_documents, url_filename
@@ -33,6 +34,9 @@ logger = logging.getLogger(__name__)
 
 # A runaway pagination guard: a weekly list is never hundreds of pages long.
 MAX_LIST_PAGES = 40
+
+# Failure-test flag: replaces the politeness pause with a long delay.
+TEST_CRAWL_DELAY_MS = "TORTOISE_TEST_CRAWL_DELAY_MS"
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -76,6 +80,13 @@ class WeeklyListCrawler:
         self._start_page = max(1, start_page)
 
     async def _pause(self) -> None:
+        # Test hook (failure test 6): TORTOISE_TEST_CRAWL_DELAY_MS replaces
+        # the politeness pause with a long, artificial delay so timeouts and
+        # resume behaviour can be exercised offline.
+        delay_ms = int(env_str(TEST_CRAWL_DELAY_MS, "0") or 0)
+        if delay_ms > 0:
+            await asyncio.sleep(delay_ms / 1000.0)
+            return
         if self._pause_range[1] > 0:
             await asyncio.sleep(random.uniform(*self._pause_range))
 
