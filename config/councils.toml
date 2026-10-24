@@ -1,0 +1,45 @@
+# The councils Tortoise watches, one [[council]] each.
+#
+# Two crawl modes are supported:
+#   idox_weekly_list  — a council running Idox Public Access; set search_url to
+#                       the Weekly/Monthly Lists search page.
+#   weekly_list_page  — a council that publishes a plain weekly list page;
+#                       set weekly_list_url.
+#
+# ALWAYS read the council's robots.txt and terms before enabling a real run.
+# If crawling the application pages is not allowed, disable the council here
+# and pick another one.
+
+[storage]
+# Where the SQLite database and downloaded PDFs live. Relative to where you
+# run Tortoise from; override with TORTOISE_DATA_DIR.
+data_dir = "data"
+
+[[council]]
+slug = "west-suffolk"
+name = "West Suffolk Council"
+mode = "idox_weekly_list"
+search_url = "https://planning.westsuffolk.gov.uk/online-applications/search.do?action=weeklyList"
+enabled = true
+notes = "Idox Public Access. Check robots.txt and terms before the first real run."
+
+[council.zone]
+# TODO(placeholder): replace with your real streets and postcode sectors
+# before the first real run. A sector is the outward code plus the first
+# inward digit, e.g. "IP33 1" matches IP33 1AA, IP33 1BE, ...
+label = "Bury St Edmunds centre (placeholder — edit me)"
+streets = ["Mill Road"]
+postcode_sectors = ["IP33 1"]
+
+[[council]]
+slug = "sevenoaks"
+name = "Sevenoaks District Council"
+mode = "weekly_list_page"
+weekly_list_url = "https://www.sevenoaks.gov.uk/info/20013/planning_applications/12/weekly_planning_applications_list"
+enabled = true
+notes = "Publishes a weekly planning applications list page. Check robots.txt and terms before the first real run."
+
+[council.zone]
+label = "Sevenoaks town centre (placeholder — edit me)"
+streets = ["High Street", "London Road"]
+postcode_sectors = ["TN13 1", "TN13 2"]
