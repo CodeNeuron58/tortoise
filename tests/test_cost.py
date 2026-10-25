@@ -29,16 +29,24 @@ class _Response:
 
 
 def test_hand_worked_example_from_the_plan():
-    # (0.15*1,000,000 + 0.03*200,000 + 0.50*100,000) / 1,000,000 = 0.206
+    # The plan's formula, with n_in the uncached input:
+    # (0.15*800,000 + 0.03*200,000 + 0.50*100,000) / 1,000,000 = 0.176
+    # The API reports 1,000,000 prompt tokens, 200,000 of them cached.
     usage = TokenUsage(input_tokens=1_000_000, cached_tokens=200_000, output_tokens=100_000)
-    assert compute_cost(usage) == Decimal("0.206")
+    assert compute_cost(usage) == Decimal("0.176")
 
 
-def test_small_realistic_call():
-    # 60k input, 2k cached, 900 out:
-    # (0.15*60000 + 0.03*2000 + 0.50*900) / 1e6 = 0.009 + 0.00006 + 0.00045 = 0.00951
-    usage = TokenUsage(input_tokens=60_000, cached_tokens=2_000, output_tokens=900)
-    assert compute_cost(usage) == Decimal("0.00951")
+def test_cached_tokens_are_billed_once():
+    # A real brief call: 4187 prompt tokens, 4096 served from cache, 4194 out.
+    # (0.15*91 + 0.03*4096 + 0.50*4194) / 1e6 = 0.00223353
+    usage = TokenUsage(input_tokens=4187, cached_tokens=4096, output_tokens=4194)
+    assert compute_cost(usage) == Decimal("0.00223353")
+
+
+def test_no_cache_is_the_plain_formula():
+    # (0.15*4187 + 0.50*2852) / 1e6 = 0.00205405 (the 2026-W44 brief)
+    usage = TokenUsage(input_tokens=4187, cached_tokens=0, output_tokens=2852)
+    assert compute_cost(usage) == Decimal("0.00205405")
 
 
 def test_empty_usage_costs_nothing():

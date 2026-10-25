@@ -5,6 +5,10 @@ $0.03 cached, and $0.50 per million output tokens, with the run cost as::
 
     cost = (0.15*n_in + 0.03*n_cached + 0.50*n_out) / 1_000_000
 
+where ``n_in`` is the *uncached* input. APIs report ``prompt_tokens`` with
+the cached tokens included, so they are subtracted before pricing — a
+cached token is billed once, at the cached rate.
+
 Everything uses :class:`decimal.Decimal` so a hand-worked example matches to
 the last digit. Token counts come from each API response's usage object; the
 counts and the computed dollars are logged per call into the ``costs`` table.
@@ -41,10 +45,14 @@ def compute_cost(
     usage: TokenUsage,
     price: ModelPrice = ULTRAMARINE_PRICE,
 ) -> Decimal:
-    """The dollar cost of one API call, as Decimal USD."""
+    """The dollar cost of one API call, as Decimal USD.
+
+    ``usage.input_tokens`` is the API's prompt count, cached tokens included.
+    """
     million = Decimal(1_000_000)
+    uncached = max(0, usage.input_tokens - usage.cached_tokens)
     return (
-        price.input * usage.input_tokens
+        price.input * uncached
         + price.cached_input * usage.cached_tokens
         + price.output * usage.output_tokens
     ) / million
