@@ -7,6 +7,7 @@ execution, so one slow council never blocks another.
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 
 from temporalio.worker import Worker
 
@@ -40,6 +41,12 @@ async def run_worker() -> None:
             activities.send_email,
             activities.record_run,
         ],
+        # Send each heartbeat promptly: the crawl heartbeats once per results
+        # page, and the server must know the last page before a crash for
+        # the retry to resume there (the default throttle is up to 60 s —
+        # longer than a whole weekly list).
+        max_heartbeat_throttle_interval=timedelta(seconds=2),
+        default_heartbeat_throttle_interval=timedelta(seconds=2),
     )
     logging.getLogger(__name__).info("worker up on task queue %r", TASK_QUEUE)
     await worker.run()

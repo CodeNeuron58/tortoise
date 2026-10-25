@@ -12,12 +12,16 @@ def test_parse_uk_date_handles_common_council_formats():
     assert parse_uk_date("14/10/2026") == date(2026, 10, 14)
     assert parse_uk_date("14-10-2026") == date(2026, 10, 14)
     assert parse_uk_date(" 14 Oct 2026 ") == date(2026, 10, 14)
+    # Idox's Important Dates tab prefixes the weekday.
+    assert parse_uk_date("Sat 14 Nov 2026") == date(2026, 11, 14)
+    assert parse_uk_date("Saturday, 14 November 2026") == date(2026, 11, 14)
 
 
 def test_parse_uk_date_fails_soft():
     assert parse_uk_date("") is None
     assert parse_uk_date(None) is None
     assert parse_uk_date("not a date") is None
+    assert parse_uk_date("Not Available") is None
     # Ambiguous US-style month-first dates must NOT be parsed as day-first.
     assert parse_uk_date("10/14/2026") is None
 

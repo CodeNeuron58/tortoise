@@ -23,6 +23,10 @@ _DATE_FORMATS = (
     "%d-%m-%Y",  # 14-10-2026
 )
 
+_WEEKDAY_PREFIX = re.compile(
+    r"^(mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s+", re.IGNORECASE
+)
+
 
 def parse_uk_date(raw: str | None) -> date | None:
     """Parse a date as UK council sites write it, or ``None`` if unparseable.
@@ -33,6 +37,8 @@ def parse_uk_date(raw: str | None) -> date | None:
     if not raw:
         return None
     text = raw.strip().rstrip(".")
+    # Idox prefixes a weekday: "Sat 14 Nov 2026".
+    text = _WEEKDAY_PREFIX.sub("", text)
     for fmt in _DATE_FORMATS:
         try:
             return datetime.strptime(text, fmt).date()

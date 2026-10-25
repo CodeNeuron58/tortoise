@@ -10,7 +10,12 @@ file.
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
+import os
+import re
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, Protocol, TypeVar, runtime_checkable
 
@@ -21,6 +26,8 @@ from stagehand import local_browser
 from .llm_adapter import OpenAICompatLLM
 
 T = TypeVar("T", bound=BaseModel)
+
+logger = logging.getLogger(__name__)
 
 
 class DriverError(Exception):
@@ -51,18 +58,40 @@ class BrowserDriver(Protocol):
 
     async def extract_idox_documents(self) -> dict: ...
 
+    async def extract_idox_dates(self) -> dict: ...
+
     async def fetch_pdf(self, url: str) -> bytes: ...
 
     async def close(self) -> None: ...
 
 
+# Set this to a directory to save a screenshot after every page Tortoise
+# opens: evidence of a real run, and the raw footage for the demo video.
+CAPTURE_DIR_ENV = "TORTOISE_CAPTURE_DIR"
+
+# Browserbase ends a session on its own after this many seconds, as a
+# safety net; Tortoise releases every session explicitly long before.
+_SESSION_TIMEOUT_SECONDS = 900
+
+# Largest document fetched through the session (base64 crosses CDP).
+_MAX_SESSION_FETCH_BYTES = 30 * 1024 * 1024
+
+
 class StagehandDriver:
     """BrowserDriver backed by Stagehand v4 against one page."""
 
-    def __init__(self, stagehand: Stagehand, page: Page) -> None:
+    def __init__(
+        self,
+        stagehand: Stagehand,
+        page: Page,
+        release: "Callable[[], Awaitable[None]] | None" = None,
+    ) -> None:
         self._stagehand = stagehand
         self._page = page
+        self._release = release
         self._started = time.monotonic()
+        self._capture_dir = _capture_dir()
+        self.session_id = ""  # the Browserbase session id, for its recording
 
     @classmethod
     async def create_local(
@@ -100,11 +129,15 @@ class StagehandDriver:
 
         UK council portals commonly block non-EU traffic, so real runs pin
         ``region`` (``eu-central-1``) unless testing says otherwise.
+
+        Closing the driver *releases* the session through the API: a
+        long-lived worker otherwise keeps the CDP socket open and the
+        session runs on, billed, until Browserbase's own timeout.
         """
         from browserbase import AsyncBrowserbase
         from stagehand.browserbase_session import BrowserbaseRegion
 
-        create_kwargs: dict = {"project_id": project_id}
+        create_kwargs: dict = {"project_id": project_id, "api_timeout": _SESSION_TIMEOUT_SECONDS}
         if region:
             create_kwargs["region"] = BrowserbaseRegion(region)
 
@@ -120,11 +153,25 @@ class StagehandDriver:
                 connect_url = await asyncio.to_thread(
                     _fetch_connect_url, api_key, session.id
                 )
-        browser = await local_browser.connect(cdp_url=connect_url)
-        # The callback is passed bare: Stagehand wraps it in its ClientLLM model itself.
-        stagehand = await Stagehand.create(browser=browser, model=llm.generate)
-        page = await cls._first_page(stagehand)
-        return cls(stagehand, page)
+        logger.info("browserbase session %s (%s)", session.id, region or "default region")
+
+        async def release() -> None:
+            async with AsyncBrowserbase(api_key=api_key) as client:
+                await client.sessions.update(
+                    session.id, status="REQUEST_RELEASE", project_id=project_id
+                )
+
+        try:
+            browser = await local_browser.connect(cdp_url=connect_url)
+            # The callback is passed bare: Stagehand wraps it in its ClientLLM model itself.
+            stagehand = await Stagehand.create(browser=browser, model=llm.generate)
+            page = await cls._first_page(stagehand)
+        except Exception:
+            await _quietly(release)
+            raise
+        driver = cls(stagehand, page, release=release)
+        driver.session_id = session.id
+        return driver
 
     @staticmethod
     async def _first_page(stagehand: Stagehand) -> Page:
@@ -145,6 +192,19 @@ class StagehandDriver:
             await self._page.goto(url, wait_until="domcontentloaded", timeout=60_000)
         except Exception as exc:
             raise DriverError(f"could not open {url}: {exc}") from exc
+        await self.capture(_page_label(url))
+
+    async def capture(self, label: str) -> None:
+        """Save a screenshot when TORTOISE_CAPTURE_DIR is set; never fails a run."""
+        if self._capture_dir is None:
+            return
+        try:
+            self._capture_dir.mkdir(parents=True, exist_ok=True)
+            index = len(list(self._capture_dir.glob("*.png"))) + 1
+            path = self._capture_dir / f"{time.strftime('%H%M%S')}-{index:03d}-{label}.png"
+            await self._page.screenshot(path=str(path))
+        except Exception as exc:  # noqa: BLE001 — footage is optional
+            logger.warning("screenshot failed: %s", exc)
 
     async def act(self, instruction: str) -> str:
         try:
@@ -210,6 +270,7 @@ class StagehandDriver:
             await self._page.wait_for_timeout(5000)
         except Exception as exc:
             raise DriverError(f"could not submit the weekly list form: {exc}") from exc
+        await self.capture("results")
 
     async def extract_idox_rows(self) -> dict:
         """Parse Idox's search results straight from the DOM (no LLM).
@@ -232,33 +293,35 @@ class StagehandDriver:
         """
         try:
             await self._page.wait_for_timeout(4000)
+            await self.capture("documents-loaded")
             return await self._page.evaluate(_IDOX_DOCUMENTS_JS)
         except Exception as exc:
             raise DriverError(f"could not parse the documents table: {exc}") from exc
+
+    async def extract_idox_dates(self) -> dict:
+        """Parse the Idox 'Important Dates' tab deterministically (no LLM).
+
+        Returns ``{"found": bool, "dates": {label: value}}`` straight from
+        ``#simpleDetailsTable`` — the consultation expiry dates live here,
+        not on the summary tab.
+        """
+        try:
+            return await self._page.evaluate(_IDOX_DATES_JS)
+        except Exception as exc:
+            raise DriverError(f"could not parse the important dates: {exc}") from exc
 
     async def fetch_pdf(self, url: str) -> bytes:
         """Download bytes from inside the browser session.
 
         Council portals geo-block non-EU traffic, so documents must be
         fetched through the same EU session that crawled them — a plain
-        local HTTP GET would time out.
+        local HTTP GET would time out. The script is a self-invoking async
+        function with the URL embedded as a JSON literal.
         """
         import base64
-        import json as _json
 
-        js = (
-            "async (" + _json.dumps(url) + ") => {"
-            " const target = new URL(url, location.href).href;"
-            " const resp = await fetch(target);"
-            " if (!resp.ok) { return {error: 'HTTP ' + resp.status}; }"
-            " const buf = await resp.arrayBuffer();"
-            " const bytes = new Uint8Array(buf);"
-            " let binary = '';"
-            " for (let i = 0; i < bytes.length; i += 0x8000) {"
-            "   binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));"
-            " }"
-            " return {b64: btoa(binary)};"
-            "}"
+        js = _FETCH_JS_TEMPLATE.replace("__URL__", json.dumps(url)).replace(
+            "__MAX_BYTES__", str(_MAX_SESSION_FETCH_BYTES)
         )
         try:
             result = await self._page.evaluate(js)
@@ -275,6 +338,9 @@ class StagehandDriver:
         except Exception:
             # Closing must never mask the real outcome of a run.
             pass
+        if self._release is not None:
+            await _quietly(self._release)
+            self._release = None
 
 
 async def _ensure_extension_id(client, api_key: str, cache_dir: Path) -> str:
@@ -319,6 +385,32 @@ def _fetch_connect_url(api_key: str, session_id: str) -> str:
     if not connect_url:
         raise DriverError("Browserbase session has no connectUrl (already expired?)")
     return connect_url
+
+
+async def _quietly(release: Callable[[], Awaitable[None]]) -> None:
+    """Release a session, logging instead of raising (cleanup must not mask)."""
+    try:
+        await release()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("could not release the browser session: %s", exc)
+
+
+def _capture_dir() -> Path | None:
+    raw = os.environ.get(CAPTURE_DIR_ENV, "").strip()
+    return Path(raw) if raw else None
+
+
+def _page_label(url: str) -> str:
+    """A short filename-safe label for a screenshot of ``url``."""
+    tab = re.search(r"activeTab=([A-Za-z]+)", url)
+    if tab:
+        return tab.group(1)
+    page = re.search(r"searchCriteria\.page=(\d+)", url)
+    if page:
+        return f"results-page-{page.group(1)}"
+    if "weeklyList" in url:
+        return "weekly-list-form"
+    return "page"
 
 
 # Direct-click fallbacks for the stable parts of Idox Public Access pages,
@@ -420,6 +512,46 @@ _IDOX_DOCUMENTS_JS = """\
     return { name: cells.join(' '), url: absolute };
   }).filter((d) => d.url);
   return { documents: docs };
+})()
+"""
+
+# Deterministic Idox "Important Dates" parser: label/value pairs from the
+# shared #simpleDetailsTable (th = label, td = value).
+_IDOX_DATES_JS = """\
+(() => {
+  const table = document.querySelector('#simpleDetailsTable');
+  if (!table) { return { found: false, dates: {} }; }
+  const dates = {};
+  for (const tr of Array.from(table.rows)) {
+    const th = tr.querySelector('th');
+    const td = tr.querySelector('td');
+    if (!th || !td) continue;
+    const label = (th.textContent || '').replace(/\\s+/g, ' ').trim();
+    const value = (td.textContent || '').replace(/\\s+/g, ' ').trim();
+    if (label) dates[label] = value;
+  }
+  return { found: true, dates: dates };
+})()
+"""
+
+# Fetch one document from inside the session, same-origin with the portal.
+_FETCH_JS_TEMPLATE = """\
+(async () => {
+  const target = new URL(__URL__, location.href).href;
+  let resp;
+  try {
+    resp = await fetch(target, { credentials: 'include' });
+  } catch (e) {
+    return { error: 'network: ' + String(e) };
+  }
+  if (!resp.ok) { return { error: 'HTTP ' + resp.status }; }
+  const buf = new Uint8Array(await resp.arrayBuffer());
+  if (buf.length > __MAX_BYTES__) { return { error: 'too large: ' + buf.length + ' bytes' }; }
+  let binary = '';
+  for (let i = 0; i < buf.length; i += 0x8000) {
+    binary += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+  }
+  return { b64: btoa(binary) };
 })()
 """
 

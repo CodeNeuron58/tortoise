@@ -3,8 +3,9 @@
 The plan caps each application at three *text* documents — the application
 form, a design and access statement, a planning statement — and explicitly
 skips drawings and scans. Selection scores document names against priority
-keywords, drops obvious drawing sets, and takes the top three. Downloads go
-over plain HTTP (not the browser) so they cost no browser minutes.
+keywords, drops obvious drawing sets and photos, and takes the top three.
+Downloads go through the browser session (UK portals geo-block other
+traffic); plain HTTP here is the fallback.
 """
 
 from __future__ import annotations
@@ -42,6 +43,9 @@ _EXCLUDE_KEYWORDS = (
     "aerial",
     "photograph",
     "photo",
+    "picture",
+    "image",
+    "visual",
 )
 
 _PDF_MAGIC = b"%PDF"
@@ -68,9 +72,11 @@ def _score(name: str) -> int | None:
 def select_documents(links: list[DocumentLink], limit: int = 3) -> list[DocumentLink]:
     """The documents worth downloading: text-like, prioritised, at most ``limit``."""
     candidates: list[tuple[int, int, DocumentLink]] = []
+    seen_urls: set[str] = set()
     for index, link in enumerate(links):
-        if not link.url:
+        if not link.url or link.url in seen_urls:
             continue
+        seen_urls.add(link.url)
         score = _score(link.name or url_filename(link.url))
         if score is None:
             continue
