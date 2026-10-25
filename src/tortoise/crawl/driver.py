@@ -75,12 +75,12 @@ class StagehandDriver:
         """Create one Browserbase session and connect Stagehand to it.
 
         SEAM: this is the one integration that cannot be exercised offline.
-        It uses the documented Browserbase CDP pattern (create session, connect
-        by websocket with the API key header); if Stagehand's Browserbase
-        integration changes, fix it here only.
+        The connect URL is taken from the session itself (the API returns a
+        region-specific ``wss://connect.<region>.browserbase.com/`` URL with
+        an embedded signing key — it is not a fixed hostname).
 
-        UK council portals commonly block non-EU traffic, so real runs should
-        pin ``region`` (``eu_central_1``) unless testing says otherwise.
+        UK council portals commonly block non-EU traffic, so real runs pin
+        ``region`` (``eu-central-1``) unless testing says otherwise.
         """
         from browserbase import AsyncBrowserbase
         from stagehand.browserbase_session import BrowserbaseRegion
@@ -91,10 +91,13 @@ class StagehandDriver:
 
         async with AsyncBrowserbase(api_key=api_key) as client:
             session = await client.sessions.create(**create_kwargs)
-        browser = await local_browser.connect(
-            cdp_url=f"wss://cdn.browserbase.com?sessionId={session.id}",
-            headers={"x-bb-api-key": api_key},
-        )
+            connect_url = getattr(session, "connect_url", None)
+            if not connect_url:
+                # The SDK's session model omits connect_url; the raw API has it.
+                connect_url = await asyncio.to_thread(
+                    _fetch_connect_url, api_key, session.id
+                )
+        browser = await local_browser.connect(cdp_url=connect_url)
         # The callback is passed bare: Stagehand wraps it in its ClientLLM model itself.
         stagehand = await Stagehand.create(browser=browser, model=llm.generate)
         page = await cls._first_page(stagehand)
@@ -157,6 +160,27 @@ class StagehandDriver:
         except Exception:
             # Closing must never mask the real outcome of a run.
             pass
+
+
+def _fetch_connect_url(api_key: str, session_id: str) -> str:
+    """The session's real CDP websocket URL, from the raw Browserbase API.
+
+    The API returns ``connectUrl`` — a ``wss://connect.<region>.browserbase.com``
+    URL carrying an embedded signing key, valid for that session only.
+    """
+    import json
+    import urllib.request
+
+    request = urllib.request.Request(
+        f"https://api.browserbase.com/v1/sessions/{session_id}",
+        headers={"x-bb-api-key": api_key},
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        data = json.load(response)
+    connect_url = data.get("connectUrl")
+    if not connect_url:
+        raise DriverError("Browserbase session has no connectUrl (already expired?)")
+    return connect_url
 
 
 async def act_optional(driver: BrowserDriver, instruction: str) -> bool:
