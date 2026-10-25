@@ -182,8 +182,14 @@ def _schema_of(response_format) -> dict:
 
 
 def _value_for(name: str, prop: dict, data: object):
-    """One schema property's value: from the model's data, else a default."""
-    if isinstance(data, dict) and name in data:
+    """One schema property's value: from the model's data, else a default.
+
+    A value of the wrong shape (a small model's common mistake — e.g. a
+    string where the schema wants an object) is treated as absent, so the
+    schema default keeps the reply protocol-valid instead of crashing the
+    caller's validation.
+    """
+    if isinstance(data, dict) and name in data and _matches_type(data[name], prop):
         return data[name]
     if isinstance(data, list) and len(data) == 1 and isinstance(data[0], (dict, list)):
         # A model returning a bare list for an object schema.
@@ -200,6 +206,34 @@ def _value_for(name: str, prop: dict, data: object):
                 return _default_for_type(branch_type, branch)
         return None
     return _default_for_type(prop.get("type"), prop)
+
+
+def _matches_type(value: object, prop: dict) -> bool:
+    """Does this value fit the property's (possibly union) type?"""
+    if not isinstance(prop, dict):
+        return True
+    any_of = prop.get("anyOf")
+    if isinstance(any_of, list):
+        return any(
+            isinstance(branch, dict) and _matches_type(value, branch) for branch in any_of
+        )
+    prop_type = prop.get("type")
+    types = set(prop_type if isinstance(prop_type, list) else [prop_type])
+    if "object" in types:
+        return isinstance(value, dict)
+    if "array" in types:
+        return isinstance(value, list)
+    if "boolean" in types:
+        return isinstance(value, bool)
+    if "integer" in types:
+        return isinstance(value, int) and not isinstance(value, bool)
+    if "number" in types:
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if "string" in types:
+        return isinstance(value, str)
+    if "null" in types:
+        return value is None
+    return True  # untyped property: accept
 
 
 def _default_for_type(prop_type, prop: dict):

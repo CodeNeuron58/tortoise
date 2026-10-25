@@ -67,6 +67,9 @@ class FakeDriver:
     async def observe(self, instruction):
         return []
 
+    async def click_direct(self, purpose):
+        return getattr(self, "direct_click_result", False)
+
     async def close(self):
         pass
 

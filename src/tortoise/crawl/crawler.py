@@ -27,7 +27,7 @@ from ..config import env_str
 from ..extract import extract_text
 from ..models import Application, CrawlMode, Council, ExtractedDocument, parse_uk_date
 from .documents import download_pdf_async, safe_filename, select_documents, url_filename
-from .driver import BrowserDriver, DriverError, absolutise, act_optional
+from .driver import BrowserDriver, DriverError, absolutise, act_optional, click_with_fallback
 from .schemas import ApplicationSummary, DocumentsList, WeeklyListPage
 
 logger = logging.getLogger(__name__)
@@ -110,7 +110,7 @@ class WeeklyListCrawler:
         await act_optional(
             self._driver, "if asked which applications to show, choose the validated applications"
         )
-        await self._driver.act("click the Search button")
+        await click_with_fallback(self._driver, "click the Search button", "search")
 
         return await self._paginate()
 
@@ -126,7 +126,7 @@ class WeeklyListCrawler:
         # clicking Next without extracting (their rows are already stored).
         for _ in range(1, self._start_page):
             await self._pause()
-            await self._driver.act("click the Next page button")
+            await click_with_fallback(self._driver, "click the Next page button", "next")
 
         for page_number in range(self._start_page, MAX_LIST_PAGES + 1):
             if page_number > self._start_page:
@@ -147,7 +147,7 @@ class WeeklyListCrawler:
                 await self._on_page(page_number)
             if not page.has_next_page:
                 break
-            await self._driver.act("click the Next page button")
+            await click_with_fallback(self._driver, "click the Next page button", "next")
         outcome.browser_seconds = self._driver.seconds_in_browser
         logger.info(
             "%s: %d applications over %d pages (from page %d)",
@@ -196,8 +196,9 @@ class WeeklyListCrawler:
         outcome.comment_deadline = parse_uk_date(summary.comment_deadline)
 
         # The documents live on their own tab on Idox sites; on other layouts
-        # they are already on the page, and a failed tab click is fine.
-        await act_optional(self._driver, "click the Documents tab if the page has one")
+        # they are already on the page. act first, direct selectors as the net.
+        if not await act_optional(self._driver, "click the Documents tab if the page has one"):
+            await self._driver.click_direct("documents")
         docs = await self._driver.extract(
             "Extract every document in this application's documents list: its name and its "
             "link. Do not follow the links.",

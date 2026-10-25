@@ -41,6 +41,10 @@ class BrowserDriver(Protocol):
 
     async def observe(self, instruction: str) -> list[str]: ...
 
+    async def click_direct(self, purpose: str) -> bool:
+        """Direct-selector click for a known stable control; True on success."""
+        ...
+
     async def close(self) -> None: ...
 
 
@@ -165,6 +169,23 @@ class StagehandDriver:
             for item in (results or [])
         ]
 
+    async def click_direct(self, purpose: str) -> bool:
+        """Click a stable control by CSS selector or visible text, via JS."""
+        import json as _json
+
+        selectors = list(_DIRECT_SELECTORS.get(purpose, ()))
+        texts = list(_DIRECT_TEXTS.get(purpose, ()))
+        if not selectors and not texts:
+            return False
+        js = _CLICK_JS_TEMPLATE.format(
+            selectors=_json.dumps(selectors), texts=_json.dumps(texts)
+        )
+        try:
+            result = await self._page.evaluate(js)
+        except Exception:
+            return False
+        return bool(result)
+
     async def close(self) -> None:
         try:
             await self._stagehand.close()
@@ -217,6 +238,52 @@ def _fetch_connect_url(api_key: str, session_id: str) -> str:
     return connect_url
 
 
+# Direct-click fallbacks for the stable parts of Idox Public Access pages,
+# per the plan's advice ("use direct selectors for the stable parts"). The
+# protocol-native act() is always tried first; these are the safety net.
+_DIRECT_SELECTORS: dict[str, tuple[str, ...]] = {
+    "search": (
+        "input[name='search']",
+        "button[type='submit']",
+        "form input[type='submit']",
+        "#search",
+    ),
+    "next": (
+        "a.next",
+        "li.next a",
+        "a[rel='next']",
+        ".pagination a:last-child",
+    ),
+    "documents": (
+        "#tab-documents a",
+        "li#tab-documents a",
+        "a[href*='activeTab=documents']",
+    ),
+}
+_DIRECT_TEXTS: dict[str, tuple[str, ...]] = {
+    "search": ("search",),
+    "next": ("next", "next page", "»", "›"),
+    "documents": ("documents",),
+}
+
+_CLICK_JS_TEMPLATE = """\
+(() => {
+  const selectors = {selectors};
+  const texts = {texts};
+  for (const s of selectors) {{
+    const el = document.querySelector(s);
+    if (el) {{ el.click(); return s; }}
+  }}
+  const candidates = document.querySelectorAll('a, button, input[type=submit]');
+  for (const el of candidates) {{
+    const label = (el.textContent || el.value || '').trim().toLowerCase();
+    if (texts.some((t) => label === t)) {{ el.click(); return 'text:' + label; }}
+  }}
+  return null;
+})()
+"""
+
+
 async def act_optional(driver: BrowserDriver, instruction: str) -> bool:
     """Act on a step that may not exist on every council's page.
 
@@ -228,6 +295,26 @@ async def act_optional(driver: BrowserDriver, instruction: str) -> bool:
         return True
     except DriverError:
         return False
+
+
+async def click_with_fallback(
+    driver: BrowserDriver, instruction: str, purpose: str
+) -> None:
+    """Click a required control: act() first, direct selectors as the net.
+
+    Raises DriverError when both fail — the activity layer decides whether
+    that is worth a retry.
+    """
+    try:
+        await driver.act(instruction)
+        return
+    except DriverError:
+        pass
+    if not await driver.click_direct(purpose):
+        raise DriverError(
+            f"could not click the {purpose} control: act failed and no "
+            f"known selector matched"
+        )
 
 
 def absolutise(url: str, base_url: str) -> str:
