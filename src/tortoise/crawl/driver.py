@@ -70,6 +70,7 @@ class StagehandDriver:
         llm: OpenAICompatLLM,
         api_key: str,
         project_id: str,
+        region: str | None = None,
     ) -> "StagehandDriver":
         """Create one Browserbase session and connect Stagehand to it.
 
@@ -77,11 +78,19 @@ class StagehandDriver:
         It uses the documented Browserbase CDP pattern (create session, connect
         by websocket with the API key header); if Stagehand's Browserbase
         integration changes, fix it here only.
+
+        UK council portals commonly block non-EU traffic, so real runs should
+        pin ``region`` (``eu_central_1``) unless testing says otherwise.
         """
         from browserbase import AsyncBrowserbase
+        from stagehand.browserbase_session import BrowserbaseRegion
+
+        create_kwargs: dict = {"project_id": project_id}
+        if region:
+            create_kwargs["region"] = BrowserbaseRegion(region)
 
         async with AsyncBrowserbase(api_key=api_key) as client:
-            session = await client.sessions.create(project_id=project_id)
+            session = await client.sessions.create(**create_kwargs)
         browser = await local_browser.connect(
             cdp_url=f"wss://cdn.browserbase.com?sessionId={session.id}",
             headers={"x-bb-api-key": api_key},
