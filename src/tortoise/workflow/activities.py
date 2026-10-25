@@ -122,10 +122,12 @@ def _browser_choice(local_browser: bool) -> bool:
 
 
 def _stagehand_llm() -> OpenAICompatLLM:
+    # Local Ollama by default: the crawl costs nothing. Point these at a
+    # stronger OpenAI-compatible model if the local one can't drive a site.
     return OpenAICompatLLM(
-        base_url=env_required("STAGEHAND_BASE_URL", "driving Stagehand's browser actions"),
+        base_url=env_str("STAGEHAND_BASE_URL", "http://localhost:11434/v1"),
         api_key=env_str("STAGEHAND_API_KEY", "ollama") or "ollama",
-        model=env_required("STAGEHAND_MODEL", "driving Stagehand's browser actions"),
+        model=env_str("STAGEHAND_MODEL", "gemma4:e4b"),
     )
 
 
@@ -238,9 +240,9 @@ async def gemma_filter(params: FilterParams) -> FilterSummary:
     """Gemma labels every in-zone application; kept results are stored."""
     config, db = _RUNTIME.get()
     council = config.council(params.council)
-    model = env_required("GEMMA_MODEL", "the local Gemma filter")
-    base_url = _DEAD_PORT_BASE_URL if env_str(TEST_OLLAMA_DOWN) else env_required(
-        "OLLAMA_BASE_URL", "the local Gemma filter"
+    model = env_str("GEMMA_MODEL", "gemma4:e4b")
+    base_url = _DEAD_PORT_BASE_URL if env_str(TEST_OLLAMA_DOWN) else env_str(
+        "OLLAMA_BASE_URL", "http://localhost:11434/v1"
     )
     gemma = GemmaFilter(base_url=base_url, model=model)
 
@@ -293,9 +295,9 @@ async def write_brief(params: BriefParams) -> BriefOutcome:
         if app.reference in kept_refs
     ]
 
-    model = env_required("ULTRAMARINE_MODEL", "writing the brief")
+    model = env_str("ULTRAMARINE_MODEL", "ultramarine-1-flash")
     writer = BriefWriter(
-        base_url=env_required("ULTRAMARINE_BASE_URL", "writing the brief"),
+        base_url=env_str("ULTRAMARINE_BASE_URL", "https://api.paperinstruments.com/v1"),
         api_key=env_required("ULTRAMARINE_API_KEY", "writing the brief"),
         model=model,
     )

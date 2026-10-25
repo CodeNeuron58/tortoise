@@ -123,28 +123,21 @@ def _cmd_config_check(args: argparse.Namespace) -> int:
     return 0
 
 
+# Variables that genuinely have no sensible default. The Stagehand/Ollama
+# settings default to local Ollama in code, so they are not listed here;
+# BROWSERBASE_* is only needed for real (non-local) runs.
 _REQUIRED_BY_STEP = {
-    "crawling with Browserbase": [
-        ("BROWSERBASE_API_KEY", "real browser runs"),
-        ("BROWSERBASE_PROJECT_ID", "real browser runs"),
-    ],
-    "driving the browser (Stagehand)": [
-        ("STAGEHAND_BASE_URL", "Stagehand's LLM"),
-        ("STAGEHAND_MODEL", "Stagehand's LLM"),
-    ],
-    "filtering locally (Gemma)": [
-        ("OLLAMA_BASE_URL", "the local Gemma filter"),
-        ("GEMMA_MODEL", "the local Gemma filter"),
-    ],
     "writing the brief (Ultramarine)": [
-        ("ULTRAMARINE_BASE_URL", "writing the brief"),
         ("ULTRAMARINE_API_KEY", "writing the brief"),
-        ("ULTRAMARINE_MODEL", "writing the brief"),
     ],
     "sending email (Brevo)": [
         ("BREVO_API_KEY", "sending the email"),
         ("BREVO_FROM_EMAIL", "sending the email"),
         ("TORTOISE_TO_EMAIL", "sending the email"),
+    ],
+    "real browser runs (optional — local Chrome works without)": [
+        ("BROWSERBASE_API_KEY", "real browser runs"),
+        ("BROWSERBASE_PROJECT_ID", "real browser runs"),
     ],
 }
 
