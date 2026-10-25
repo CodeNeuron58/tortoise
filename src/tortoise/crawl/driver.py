@@ -9,6 +9,7 @@ file.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any, Protocol, TypeVar, runtime_checkable
 
