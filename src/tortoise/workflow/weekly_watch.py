@@ -35,12 +35,18 @@ from ..models import RunNumbers, WatchZone
 from ..zone import in_zone
 from .messages import (
     ApplicationRow,
+    BriefOutcome,
+    CouncilSettings,
     CrawlListParams,
+    CrawlListResult,
     EmailParams,
     FetchParams,
+    FetchResult,
     FilterParams,
+    FilterSummary,
     BriefParams,
     WeeklyWatchInput,
+    rebuild,
 )
 
 # Activity names, as registered by the worker (the activities module is never
@@ -81,11 +87,14 @@ class WeeklyWatch:
         week = params.week or _current_week()
         numbers = RunNumbers(council=params.council, week=week)
 
-        settings = await workflow.execute_activity(
-            GET_COUNCIL_SETTINGS,
-            params.council,
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=_default_retry(),
+        settings = rebuild(
+            CouncilSettings,
+            await workflow.execute_activity(
+                GET_COUNCIL_SETTINGS,
+                params.council,
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=_default_retry(),
+            ),
         )
         already = await workflow.execute_activity(
             CHECK_NOT_ALREADY_RUN,
@@ -103,12 +112,15 @@ class WeeklyWatch:
         await _record(numbers)
 
         # 1. Crawl the weekly list.
-        crawl = await workflow.execute_activity(
-            CRAWL_LIST,
-            CrawlListParams(council=params.council, week=week, local_browser=params.local_browser),
-            start_to_close_timeout=timedelta(minutes=12),  # under Browserbase's 15-minute session cap
-            heartbeat_timeout=timedelta(minutes=2),
-            retry_policy=_default_retry(),
+        crawl = rebuild(
+            CrawlListResult,
+            await workflow.execute_activity(
+                CRAWL_LIST,
+                CrawlListParams(council=params.council, week=week, local_browser=params.local_browser),
+                start_to_close_timeout=timedelta(minutes=12),  # under Browserbase's 15-minute session cap
+                heartbeat_timeout=timedelta(minutes=2),
+                retry_policy=_default_retry(),
+            ),
         )
         numbers.listed = len(crawl.applications)
         numbers.pages_read += crawl.pages_read
@@ -129,16 +141,19 @@ class WeeklyWatch:
         # 3. Fetch each kept application, politely.
         deadlines: list[str] = []
         for row in in_zone_rows:
-            fetch = await workflow.execute_activity(
-                FETCH_APPLICATION,
-                FetchParams(
-                    council=params.council,
-                    week=week,
-                    reference=row.reference,
-                    local_browser=params.local_browser,
+            fetch = rebuild(
+                FetchResult,
+                await workflow.execute_activity(
+                    FETCH_APPLICATION,
+                    FetchParams(
+                        council=params.council,
+                        week=week,
+                        reference=row.reference,
+                        local_browser=params.local_browser,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=6),
+                    retry_policy=_default_retry(),
                 ),
-                start_to_close_timeout=timedelta(minutes=6),
-                retry_policy=_default_retry(),
             )
             numbers.pdfs_read += fetch.documents
             numbers.pages_read += fetch.pages_read
@@ -157,12 +172,15 @@ class WeeklyWatch:
         # everything and mark the run "unfiltered" instead of dropping apps.
         kept_references = [row.reference for row in in_zone_rows]
         try:
-            filter_summary = await workflow.execute_activity(
-                GEMMA_FILTER,
-                FilterParams(council=params.council, week=week),
-                start_to_close_timeout=timedelta(minutes=45),
-                heartbeat_timeout=timedelta(minutes=5),
-                retry_policy=_default_retry(),
+            filter_summary = rebuild(
+                FilterSummary,
+                await workflow.execute_activity(
+                    GEMMA_FILTER,
+                    FilterParams(council=params.council, week=week),
+                    start_to_close_timeout=timedelta(minutes=45),
+                    heartbeat_timeout=timedelta(minutes=5),
+                    retry_policy=_default_retry(),
+                ),
             )
             numbers.gemma_seconds = filter_summary.gemma_seconds
             kept_references = filter_summary.kept_references
@@ -176,18 +194,21 @@ class WeeklyWatch:
         brief_text: str | None = None
         try:
             if kept_references:
-                outcome = await workflow.execute_activity(
-                    WRITE_BRIEF,
-                    BriefParams(
-                        council=params.council, week=week, kept_references=kept_references
-                    ),
-                    start_to_close_timeout=timedelta(minutes=10),
-                    retry_policy=RetryPolicy(
-                        maximum_attempts=3,
-                        initial_interval=timedelta(seconds=20),
-                        backoff_coefficient=2.0,
-                        maximum_interval=timedelta(minutes=5),
-                        non_retryable_error_types=["BriefAuthError"],
+                outcome = rebuild(
+                    BriefOutcome,
+                    await workflow.execute_activity(
+                        WRITE_BRIEF,
+                        BriefParams(
+                            council=params.council, week=week, kept_references=kept_references
+                        ),
+                        start_to_close_timeout=timedelta(minutes=10),
+                        retry_policy=RetryPolicy(
+                            maximum_attempts=3,
+                            initial_interval=timedelta(seconds=20),
+                            backoff_coefficient=2.0,
+                            maximum_interval=timedelta(minutes=5),
+                            non_retryable_error_types=["BriefAuthError"],
+                        ),
                     ),
                 )
                 brief_text = outcome.text

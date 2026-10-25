@@ -88,6 +88,42 @@ class EmailResult:
 # --- activity parameters -----------------------------------------------------
 
 
+def rebuild(cls, payload):
+    """Rebuild a message dataclass from whatever the payload converter gave.
+
+    Temporal sometimes delivers activity results as plain dicts (the workflow
+    sandbox's payload conversion); this walks the known message types and
+    rebuilds them. Pass already-typed values through untouched.
+    """
+    import dataclasses
+    from ..models import RunNumbers
+
+    def build(target_cls, value):
+        if value is None or not dataclasses.is_dataclass(target_cls):
+            return value
+        if isinstance(value, target_cls):
+            return value
+        if not isinstance(value, dict):
+            return value
+        hints = {f.name: f.type for f in dataclasses.fields(target_cls)}
+        kwargs = {}
+        for name, field_type in hints.items():
+            if name not in value:
+                continue
+            inner = value[name]
+            origin = getattr(field_type, "__origin__", None)
+            if origin is list and isinstance(inner, list):
+                item_type = getattr(field_type, "__args__", (None,))[0]
+                kwargs[name] = [build(item_type, item) for item in inner]
+            elif dataclasses.is_dataclass(field_type):
+                kwargs[name] = build(field_type, inner)
+            else:
+                kwargs[name] = inner
+        return target_cls(**kwargs)
+
+    return build(cls, payload)
+
+
 @dataclass(slots=True, frozen=True)
 class CrawlListParams:
     council: str
