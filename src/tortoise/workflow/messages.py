@@ -96,7 +96,7 @@ def rebuild(cls, payload):
     rebuilds them. Pass already-typed values through untouched.
     """
     import dataclasses
-    from ..models import RunNumbers
+    import typing
 
     def build(target_cls, value):
         if value is None or not dataclasses.is_dataclass(target_cls):
@@ -105,7 +105,9 @@ def rebuild(cls, payload):
             return value
         if not isinstance(value, dict):
             return value
-        hints = {f.name: f.type for f in dataclasses.fields(target_cls)}
+        # get_type_hints resolves the string annotations that
+        # `from __future__ import annotations` leaves on the fields.
+        hints = typing.get_type_hints(target_cls)
         kwargs = {}
         for name, field_type in hints.items():
             if name not in value:
