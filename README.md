@@ -205,7 +205,7 @@ docs/evidence/         workflow histories, the real email, the cost log, screens
 - The whole pipeline ran live, end to end, on 25 Oct 2026 (UTC): EU Browserbase
   session → 23 applications → zone filter → local Gemma → two PDFs read →
   Ultramarine brief → email with the exact cost in the footer. All six
-  failure tests have exported histories in `docs/evidence/`.
+  failure tests have evidence in `docs/evidence/`.
 - Only West Suffolk has been run live, and its `robots.txt` disallows
   automated access (see the politeness rules). Both example councils ship
   disabled.
