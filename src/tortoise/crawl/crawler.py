@@ -98,11 +98,59 @@ class WeeklyListCrawler:
         return await self._crawl_list_page()
 
     async def _crawl_idox(self) -> CrawlListOutcome:
+        """Crawl an Idox weekly list: submit the form, parse the DOM, page Next.
+
+        The form drive and row parsing are deterministic (direct selectors —
+        every Idox council shares this DOM); the LLM is not involved, so this
+        step is free and exact. Falls back to the LLM flow only if the
+        deterministic parse finds nothing at all (a council with a divergent
+        layout).
+        """
         council = self._council
         await self._driver.goto(council.search_url)
+        await self._driver.submit_idox_weekly_form()
 
-        # Conditional steps: council pages differ, so failures are fine here.
-        await act_optional(self._driver, "if a search-type choice is shown, choose 'Planning'")
+        outcome = CrawlListOutcome()
+        seen: set[str] = set()
+        page_number = 1
+        while page_number <= MAX_LIST_PAGES:
+            if page_number > 1:
+                await self._pause()
+            data = await self._driver.extract_idox_rows()
+            rows = data.get("rows", []) if isinstance(data, dict) else []
+            for row_ in rows:
+                application = self._row_to_application(row_)
+                if application and application.reference not in seen:
+                    seen.add(application.reference)
+                    outcome.applications.append(application)
+            outcome.pages_read += 1
+            if self._on_page is not None:
+                await self._on_page(page_number)
+            next_href = data.get("next_href") if isinstance(data, dict) else None
+            if not next_href:
+                break
+            await self._driver.goto(absolutise(next_href, council.search_url))
+            page_number += 1
+
+        if not outcome.applications:
+            workflow_note = "no rows parsed; falling back to the LLM flow"
+            logger.warning("%s: %s", council.slug, workflow_note)
+            return await self._crawl_idox_llm()
+
+        outcome.browser_seconds = self._driver.seconds_in_browser
+        logger.info(
+            "%s: %d applications over %d pages (deterministic)",
+            council.slug,
+            len(outcome.applications),
+            outcome.pages_read,
+        )
+        return outcome
+
+    async def _crawl_idox_llm(self) -> CrawlListOutcome:
+        """The LLM-driven Idox flow — the fallback for divergent layouts."""
+        await act_optional(
+            self._driver, "if a search-type choice is shown, choose 'Planning'"
+        )
         await act_optional(
             self._driver, "in the Weekly or Monthly Lists form, make sure 'Weekly' is selected"
         )
@@ -111,7 +159,6 @@ class WeeklyListCrawler:
             self._driver, "if asked which applications to show, choose the validated applications"
         )
         await click_with_fallback(self._driver, "click the Search button", "search")
-
         return await self._paginate()
 
     async def _crawl_list_page(self) -> CrawlListOutcome:
@@ -159,7 +206,19 @@ class WeeklyListCrawler:
         return outcome
 
     def _row_to_application(self, row) -> Application | None:
-        reference = (row.reference or "").strip()
+        """Build an Application from a parsed row — dict or object, either way."""
+        if isinstance(row, dict):
+            reference = str(row.get("reference") or "").strip()
+            address = str(row.get("address") or "").strip()
+            proposal = str(row.get("proposal") or "").strip()
+            url = str(row.get("url") or "").strip()
+            validated_raw = str(row.get("validated_on") or "").strip()
+        else:
+            reference = (row.reference or "").strip()
+            address = (row.address or "").strip()
+            proposal = (row.proposal or "").strip()
+            url = (row.url or "").strip()
+            validated_raw = (row.validated_on or "").strip()
         if not reference:
             return None
         base = (
@@ -170,10 +229,10 @@ class WeeklyListCrawler:
         return Application(
             reference=reference,
             council=self._council.slug,
-            address=(row.address or "").strip(),
-            proposal=(row.proposal or "").strip(),
-            url=absolutise((row.url or "").strip(), base),
-            validated_on=parse_uk_date(row.validated_on),
+            address=address,
+            proposal=proposal,
+            url=absolutise(url, base),
+            validated_on=parse_uk_date(validated_raw),
             postcode="",
         )
 

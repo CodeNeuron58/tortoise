@@ -38,13 +38,15 @@ class FakeDriver:
 
     seconds_in_browser = 42.0
 
-    def __init__(self, list_pages, summary=None, documents=None):
+    def __init__(self, list_pages, summary=None, documents=None, idox_pages=None):
         self._list_pages = iter(list_pages)
         self._summary = summary or ApplicationSummary(comment_deadline="6 November 2026")
         self._documents = documents or DocumentsList(documents=[])
+        self._idox_pages = iter(idox_pages or [])
         self.goto_urls: list[str] = []
         self.acts: list[str] = []
         self.fail_acts: set[str] = set()
+        self.submitted: bool = False
 
     async def goto(self, url):
         self.goto_urls.append(url)
@@ -70,8 +72,24 @@ class FakeDriver:
     async def click_direct(self, purpose):
         return getattr(self, "direct_click_result", False)
 
+    async def submit_idox_weekly_form(self):
+        self.submitted = True
+
+    async def extract_idox_rows(self):
+        return next(self._idox_pages)
+
     async def close(self):
         pass
+
+
+def idox_row(reference, address="14a Mill Rd"):
+    return {
+        "reference": reference,
+        "address": address,
+        "proposal": "Two-storey rear extension",
+        "url": "applicationDetails.do?keyVal=X",
+        "validated_on": "19 Oct 2026",
+    }
 
 
 def row(reference, address="14a Mill Rd", url="applicationDetails.do?keyVal=X"):
@@ -93,10 +111,11 @@ async def collect_pages(pages):
 
 def test_idox_flow_paginates_and_heartbeats():
     driver = FakeDriver(
-        [
-            WeeklyListPage(rows=[row("26/0001/FUL"), row("26/0002/FUL")], has_next_page=True),
-            WeeklyListPage(rows=[row("26/0002/FUL"), row("26/0003/FUL")], has_next_page=False),
-        ]
+        [],
+        idox_pages=[
+            {"rows": [idox_row("26/0001/FUL"), idox_row("26/0002/FUL")], "next_href": "pagedSearchResults.do?action=page&searchCriteria.page=2"},
+            {"rows": [idox_row("26/0002/FUL"), idox_row("26/0003/FUL")], "next_href": None},
+        ],
     )
     heartbeats: list[int] = []
 
@@ -108,20 +127,35 @@ def test_idox_flow_paginates_and_heartbeats():
 
     outcome = asyncio.run(crawler.crawl_list())
 
+    assert driver.submitted is True
     assert [a.reference for a in outcome.applications] == ["26/0001/FUL", "26/0002/FUL", "26/0003/FUL"]
     assert outcome.pages_read == 2
     assert heartbeats == [1, 2]
-    assert "click the Search button" in driver.acts
-    assert "click the Next page button" in driver.acts
-    # Every application's detail link was absolutised against the search page.
+    # Pagination followed the real next-link hrefs, absolutised.
+    assert driver.goto_urls[1].endswith("searchCriteria.page=2")
     assert all(a.url.startswith("https://planning.example.gov.uk/") for a in outcome.applications)
-    # Validated dates were parsed, not kept as strings.
     assert outcome.applications[0].validated_on == date(2026, 10, 19)
 
 
-def test_idox_optional_steps_may_fail():
+def test_idox_falls_back_to_llm_when_no_rows_parse():
     driver = FakeDriver(
-        [WeeklyListPage(rows=[row("26/0001/FUL")], has_next_page=False)]
+        # First the deterministic parse returns nothing...
+        [WeeklyListPage(rows=[row("26/0001/FUL")], has_next_page=False)],
+        idox_pages=[{"rows": [], "next_href": None}],
+    )
+    crawler = WeeklyListCrawler(driver, make_council(), pause_range=(0, 0))
+    import asyncio
+
+    outcome = asyncio.run(crawler.crawl_list())
+    assert len(outcome.applications) == 1  # the LLM fallback produced rows
+
+
+def test_idox_optional_steps_may_fail():
+    # Deterministic parse finds nothing -> LLM fallback runs with failing
+    # optional steps and still produces a row.
+    driver = FakeDriver(
+        [WeeklyListPage(rows=[row("26/0001/FUL")], has_next_page=False)],
+        idox_pages=[{"rows": [], "next_href": None}],
     )
     driver.fail_acts = {
         "if a search-type choice is shown, choose 'Planning'",
@@ -134,11 +168,13 @@ def test_idox_optional_steps_may_fail():
     assert len(outcome.applications) == 1  # optional failures don't sink the crawl
 
 
-def test_idox_missing_next_click_raises():
+def test_idox_llm_fallback_missing_next_click_raises():
     driver = FakeDriver(
-        [WeeklyListPage(rows=[row("26/0001/FUL")], has_next_page=True)]
+        [WeeklyListPage(rows=[row("26/0001/FUL")], has_next_page=True)],
+        idox_pages=[{"rows": [], "next_href": None}],
     )
     driver.fail_acts = {"click the Next page button"}
+    driver.direct_click_result = False
     crawler = WeeklyListCrawler(driver, make_council(), pause_range=(0, 0))
     import asyncio
 

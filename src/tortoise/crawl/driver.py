@@ -45,6 +45,10 @@ class BrowserDriver(Protocol):
         """Direct-selector click for a known stable control; True on success."""
         ...
 
+    async def submit_idox_weekly_form(self) -> None: ...
+
+    async def extract_idox_rows(self) -> dict: ...
+
     async def close(self) -> None: ...
 
 
@@ -187,6 +191,34 @@ class StagehandDriver:
             return False
         return bool(result)
 
+    async def submit_idox_weekly_form(self) -> None:
+        """Submit Idox's weekly-list form deterministically (no LLM).
+
+        The form already defaults to last week; this just ensures the
+        'validated' radio is chosen and submits, CSRF token included.
+        """
+        try:
+            await self._page.evaluate(
+                '(() => { const r = document.querySelector(\'input[value="DC_Validated"]\');'
+                " if (r && !r.checked) r.click();"
+                " document.querySelector('form').submit(); })()"
+            )
+            await self._page.wait_for_timeout(5000)
+        except Exception as exc:
+            raise DriverError(f"could not submit the weekly list form: {exc}") from exc
+
+    async def extract_idox_rows(self) -> dict:
+        """Parse Idox's search results straight from the DOM (no LLM).
+
+        Returns ``{"rows": [...], "next_href": str|null}`` where each row has
+        reference, address, proposal, url and validated_on. Deterministic and
+        free — the plan's 'direct selectors for the stable parts'.
+        """
+        try:
+            return await self._page.evaluate(_IDOX_ROWS_JS)
+        except Exception as exc:
+            raise DriverError(f"could not parse the weekly list results: {exc}") from exc
+
     async def close(self) -> None:
         try:
             await self._stagehand.close()
@@ -281,6 +313,34 @@ _CLICK_JS_TEMPLATE = """\
     if (texts.some((t) => label === t)) { el.click(); return 'text:' + label; }
   }
   return null;
+})()
+"""
+
+# Deterministic Idox Public Access results parser — the DOM every Idox council
+# shares: .searchresult blocks with a summaryLink (proposal + details URL),
+# p.address, and p.metaInfo carrying the reference and dates.
+_IDOX_ROWS_JS = """\
+(() => {
+  const rows = Array.from(document.querySelectorAll('.searchresult')).map((el) => {
+    const link = el.querySelector('a.summaryLink');
+    const proposal = (el.querySelector('.summaryLinkTextClamp') || {}).textContent || '';
+    const address = ((el.querySelector('p.address') || {}).textContent || '').replace(/\\s+/g, ' ').trim();
+    const meta = ((el.querySelector('p.metaInfo') || {}).textContent || '').replace(/\\s+/g, ' ');
+    const ref = (meta.match(/Ref\\.?\\s*No:?\\s*([^\\s\u00b7]+)/) || [])[1] || '';
+    let validated = (meta.match(/Validated:\\s*([A-Za-z0-9 ]+)/) || [])[1] || '';
+    if (!validated) validated = (meta.match(/Received:\\s*([A-Za-z0-9 ]+)/) || [])[1] || '';
+    validated = validated.trim().replace(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\\s+/i, '');
+    return {
+      reference: ref.trim(),
+      address: address,
+      proposal: proposal.replace(/\\s+/g, ' ').trim(),
+      url: link ? (link.getAttribute('href') || '') : '',
+      validated_on: validated,
+    };
+  });
+  const next = Array.from(document.querySelectorAll('a'))
+    .find((a) => /^next$/i.test((a.textContent || '').trim()));
+  return { rows: rows, next_href: next ? next.getAttribute('href') : null };
 })()
 """
 
