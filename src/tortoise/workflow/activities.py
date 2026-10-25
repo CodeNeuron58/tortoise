@@ -151,7 +151,7 @@ async def _open_driver(local_browser: bool) -> StagehandDriver:
         llm,
         api_key=env_required("BROWSERBASE_API_KEY", "real browser runs"),
         project_id=env_required("BROWSERBASE_PROJECT_ID", "real browser runs"),
-        region=env_str("BROWSERBASE_REGION", "eu_central_1") or None,
+        region=env_str("BROWSERBASE_REGION", "eu-central-1") or None,
     )
 
 
