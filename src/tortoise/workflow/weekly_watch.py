@@ -84,13 +84,13 @@ class WeeklyWatch:
         settings = await workflow.execute_activity(
             GET_COUNCIL_SETTINGS,
             params.council,
-            start_to_close=timedelta(seconds=30),
+            start_to_close_timeout=timedelta(seconds=30),
             retry_policy=_default_retry(),
         )
         already = await workflow.execute_activity(
             CHECK_NOT_ALREADY_RUN,
             (params.council, week),
-            start_to_close=timedelta(seconds=30),
+            start_to_close_timeout=timedelta(seconds=30),
             retry_policy=_default_retry(),
         )
         if already:
@@ -106,7 +106,7 @@ class WeeklyWatch:
         crawl = await workflow.execute_activity(
             CRAWL_LIST,
             CrawlListParams(council=params.council, week=week, local_browser=params.local_browser),
-            start_to_close=timedelta(minutes=12),  # under Browserbase's 15-minute session cap
+            start_to_close_timeout=timedelta(minutes=12),  # under Browserbase's 15-minute session cap
             heartbeat_timeout=timedelta(minutes=2),
             retry_policy=_default_retry(),
         )
@@ -137,7 +137,7 @@ class WeeklyWatch:
                     reference=row.reference,
                     local_browser=params.local_browser,
                 ),
-                start_to_close=timedelta(minutes=6),
+                start_to_close_timeout=timedelta(minutes=6),
                 retry_policy=_default_retry(),
             )
             numbers.pdfs_read += fetch.documents
@@ -160,7 +160,7 @@ class WeeklyWatch:
             filter_summary = await workflow.execute_activity(
                 GEMMA_FILTER,
                 FilterParams(council=params.council, week=week),
-                start_to_close=timedelta(minutes=45),
+                start_to_close_timeout=timedelta(minutes=45),
                 heartbeat_timeout=timedelta(minutes=5),
                 retry_policy=_default_retry(),
             )
@@ -181,7 +181,7 @@ class WeeklyWatch:
                     BriefParams(
                         council=params.council, week=week, kept_references=kept_references
                     ),
-                    start_to_close=timedelta(minutes=10),
+                    start_to_close_timeout=timedelta(minutes=10),
                     retry_policy=RetryPolicy(
                         maximum_attempts=3,
                         initial_interval=timedelta(seconds=20),
@@ -213,7 +213,7 @@ class WeeklyWatch:
                 brief_text=brief_text,
                 earliest_deadline=earliest_deadline,
             ),
-            start_to_close=timedelta(minutes=2),
+            start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(
                 maximum_attempts=3,
                 non_retryable_error_types=["MailAuthError"],
@@ -229,7 +229,7 @@ async def _record(numbers: RunNumbers) -> None:
     await workflow.execute_activity(
         RECORD_RUN,
         numbers,
-        start_to_close=timedelta(seconds=30),
+        start_to_close_timeout=timedelta(seconds=30),
         retry_policy=_default_retry(),
     )
 
