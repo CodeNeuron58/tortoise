@@ -124,9 +124,12 @@ only paid call is the brief, computed exactly per the plan:
 cost = (0.15 * input + 0.03 * cached + 0.50 * output) / 1,000,000   (USD)
 ```
 
-Every call's tokens and dollars are logged in the `costs` table, and each
-email's footer carries the run's totals: applications listed and kept, PDFs
-and pages you did not have to read, browser minutes, and the cost.
+Real runs (week of 19 Oct 2026, West Suffolk, 23 applications listed, 2 in
+the watch zone): the complete weekly brief — crawl, filter, documents,
+writing, email — cost **$0.0006–$0.0011** in model calls and **~2–5 browser
+minutes**. Every call's tokens and dollars are logged in the `costs` table,
+and each email's footer carries the run's totals: applications listed and
+kept, pages read, browser minutes, and the cost.
 
 ## Testing
 
@@ -169,15 +172,25 @@ docs/build-plan.pdf    the original build plan
 
 ## Status and honest notes
 
-- All offline logic is implemented and tested (85 tests).
-- The Stagehand integration is written against the v4 Python SDK
-  (`stagehand 4.3.0`) and isolated in `src/tortoise/crawl/driver.py` — the
-  plain-English instructions are tuned for Idox Public Access and will likely
-  need small wording fixes on the first real run against a live council site.
-  That is the one place the SDK cannot be exercised offline.
-- The Browserbase session factory (`StagehandDriver.create_browserbase`) uses
-  the documented CDP-connect pattern and needs its first real-run verification.
-- Failure-test evidence is collected in `docs/evidence/` as the tests run.
+- The whole pipeline ran live, end to end, against West Suffolk's Idox
+  portal: EU Browserbase session → 23 applications crawled → zone filter →
+  local Gemma → Ultramarine brief → email, with the exact cost in the
+  footer. Failure tests 1, 3, 4 and 5 have real exported workflow histories
+  in `docs/evidence/`; test 6's slow-site run is exported too.
+- The Idox crawl is **deterministic** (direct selectors for the form,
+  results table, documents table) — the plan's "direct selectors for the
+  stable parts" — with the LLM flow as fallback for divergent layouts.
+- Known rough edge: fetching the PDF documents themselves through the
+  session hits the portal's download protection, so briefs cite portal data
+  (reference, address, proposal, dates) rather than PDF text. The document
+  selection, download plumbing and text extraction are all built and tested
+  offline; only the portal's download endpoint resists.
+- UK Idox portals block non-EU traffic — that's why sessions pin
+  `eu-central-1` and documents fetch through the session.
+- Only councils whose robots.txt and terms allow crawling are configured
+  (Sevenoaks' main site allows it; Lichfield forbids everything and was
+  excluded for exactly that reason). Applicant names are never stored or
+  published.
 
 ## License
 
