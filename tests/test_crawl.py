@@ -78,6 +78,11 @@ class FakeDriver:
     async def extract_idox_rows(self):
         return next(self._idox_pages)
 
+    async def fetch_pdf(self, url):
+        if getattr(self, "fail_session_fetch", False):
+            raise DriverError("session fetch unavailable")
+        return FIXTURE_PDF.read_bytes()
+
     async def close(self):
         pass
 
@@ -230,7 +235,7 @@ def test_fetch_application_downloads_selected_documents(tmp_path, monkeypatch):
     assert all(Path(d.path).exists() for d in outcome.documents)
     assert outcome.documents[0].pages == 2  # real text was extracted from the fixture PDF
     assert not outcome.documents[0].is_scanned
-    assert outcome.pages_read == 2
+    assert outcome.pages_read == 2  # summary extract + documents page
 
 
 def test_fetch_application_without_documents(tmp_path, monkeypatch):

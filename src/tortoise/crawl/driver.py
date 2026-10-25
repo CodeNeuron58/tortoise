@@ -49,6 +49,8 @@ class BrowserDriver(Protocol):
 
     async def extract_idox_rows(self) -> dict: ...
 
+    async def fetch_pdf(self, url: str) -> bytes: ...
+
     async def close(self) -> None: ...
 
 
@@ -218,6 +220,38 @@ class StagehandDriver:
             return await self._page.evaluate(_IDOX_ROWS_JS)
         except Exception as exc:
             raise DriverError(f"could not parse the weekly list results: {exc}") from exc
+
+    async def fetch_pdf(self, url: str) -> bytes:
+        """Download bytes from inside the browser session.
+
+        Council portals geo-block non-EU traffic, so documents must be
+        fetched through the same EU session that crawled them — a plain
+        local HTTP GET would time out.
+        """
+        import base64
+        import json as _json
+
+        js = (
+            "async (" + _json.dumps(url) + ") => {"
+            " const resp = await fetch(url);"
+            " if (!resp.ok) { return {error: 'HTTP ' + resp.status}; }"
+            " const buf = await resp.arrayBuffer();"
+            " const bytes = new Uint8Array(buf);"
+            " let binary = '';"
+            " for (let i = 0; i < bytes.length; i += 0x8000) {"
+            "   binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));"
+            " }"
+            " return {b64: btoa(binary)};"
+            "}"
+        )
+        try:
+            result = await self._page.evaluate(js)
+        except Exception as exc:
+            raise DriverError(f"session fetch failed for {url}: {exc}") from exc
+        if not isinstance(result, dict) or "b64" not in result:
+            detail = result.get("error") if isinstance(result, dict) else result
+            raise DriverError(f"session fetch rejected {url}: {detail}")
+        return base64.b64decode(result["b64"])
 
     async def close(self) -> None:
         try:

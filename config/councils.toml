@@ -24,12 +24,9 @@ enabled = true
 notes = "Idox Public Access. Check robots.txt and terms before the first real run."
 
 [council.zone]
-# TODO(placeholder): replace with your real streets and postcode sectors
-# before the first real run. A sector is the outward code plus the first
-# inward digit, e.g. "IP33 1" matches IP33 1AA, IP33 1BE, ...
-label = "Bury St Edmunds centre (placeholder — edit me)"
-streets = ["Mill Road"]
-postcode_sectors = ["IP33 1"]
+label = "Bury St Edmunds town (York Road area)"
+streets = ["York Road", "Springfield Road"]
+postcode_sectors = ["IP33 3"]
 
 [[council]]
 slug = "sevenoaks"

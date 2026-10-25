@@ -18,7 +18,8 @@ def test_load_shipped_council_config():
     west_suffolk = config.council("west-suffolk")
     assert west_suffolk.mode is CrawlMode.IDOX_WEEKLY_LIST
     assert "search.do?action=weeklyList" in west_suffolk.search_url
-    assert "Mill Road" in west_suffolk.zone.streets
+    assert "York Road" in west_suffolk.zone.streets
+    assert west_suffolk.zone.postcode_sectors == ("IP33 3",)
 
     sevenoaks = config.council("sevenoaks")
     assert sevenoaks.mode is CrawlMode.WEEKLY_LIST_PAGE

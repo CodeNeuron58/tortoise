@@ -246,6 +246,12 @@ class WeeklyListCrawler:
         await self._driver.goto(application.url)
         outcome.pages_read += 1
 
+        # Idox detail pages take the tab in the URL: summary first (dates),
+        # then the documents list, without any tab-clicking.
+        documents_url = application.url
+        if "activeTab=summary" in application.url:
+            documents_url = application.url.replace("activeTab=summary", "activeTab=documents")
+
         summary = await self._driver.extract(
             "Extract the date by which comments must be made about this planning application "
             "(often labelled 'comments by' or under important dates). Leave it empty if the "
@@ -254,39 +260,57 @@ class WeeklyListCrawler:
         )
         outcome.comment_deadline = parse_uk_date(summary.comment_deadline)
 
-        # The documents live on their own tab on Idox sites; on other layouts
-        # they are already on the page. act first, direct selectors as the net.
-        if not await act_optional(self._driver, "click the Documents tab if the page has one"):
-            await self._driver.click_direct("documents")
+        await self._driver.goto(documents_url)
+        outcome.pages_read += 1
         docs = await self._driver.extract(
             "Extract every document in this application's documents list: its name and its "
             "link. Do not follow the links.",
             DocumentsList,
         )
-        outcome.pages_read += 1
 
         chosen = select_documents(docs.documents)
         for link in chosen:
             filename = safe_filename(link.name or url_filename(link.url))
+            destination = dest_dir / filename
             try:
-                path = await download_pdf_async(link.url, dest_dir, filename)
+                data = await self._fetch_document_bytes(link.url)
             except Exception as exc:  # noqa: BLE001 — one bad document must not sink the run
                 logger.warning("%s: skipping document %s: %s", application.reference, filename, exc)
                 continue
-            extracted = extract_text(path)
+            if not data.startswith(b"%PDF"):
+                logger.warning("%s: %s is not a PDF; skipping", application.reference, filename)
+                continue
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(data)
+            extracted = extract_text(destination)
             outcome.documents.append(
                 ExtractedDocument(
                     council=application.council,
                     reference=application.reference,
                     filename=filename,
                     url=link.url,
-                    path=str(path),
+                    path=str(destination),
                     pages=extracted.pages,
                     text=extracted.text,
                 )
             )
         outcome.browser_seconds = self._driver.seconds_in_browser
         return outcome
+
+    async def _fetch_document_bytes(self, url: str) -> bytes:
+        """Fetch a document through the session when possible (geo-blocked
+        portals reject direct local HTTP), falling back to direct download."""
+        fetcher = getattr(self._driver, "fetch_pdf", None)
+        if fetcher is not None:
+            try:
+                return await fetcher(url)
+            except DriverError:
+                logger.warning("session fetch failed; trying direct download")
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = await download_pdf_async(url, Path(tmp), "doc.pdf")
+            return Path(path).read_bytes()
 
 
 __all__ = [
