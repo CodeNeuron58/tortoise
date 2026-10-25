@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from pathlib import Path
 from typing import Any, Protocol, TypeVar, runtime_checkable
 
 from pydantic import BaseModel
@@ -72,13 +73,18 @@ class StagehandDriver:
         api_key: str,
         project_id: str,
         region: str | None = None,
+        extension_cache: Path | None = None,
     ) -> "StagehandDriver":
         """Create one Browserbase session and connect Stagehand to it.
 
         SEAM: this is the one integration that cannot be exercised offline.
-        The connect URL is taken from the session itself (the API returns a
-        region-specific ``wss://connect.<region>.browserbase.com/`` URL with
-        an embedded signing key — it is not a fixed hostname).
+
+        Browserbase rejects CDP ``Extensions.loadUnpacked``, so Stagehand's
+        bundled extension is pre-installed the Browserbase way: build its
+        archive, upload it once per project (the id is cached), and pass it
+        at session creation. The connect URL comes from the session itself
+        (a region-specific ``wss://connect.<region>.browserbase.com/`` URL
+        with an embedded signing key — not a fixed hostname).
 
         UK council portals commonly block non-EU traffic, so real runs pin
         ``region`` (``eu-central-1``) unless testing says otherwise.
@@ -91,6 +97,10 @@ class StagehandDriver:
             create_kwargs["region"] = BrowserbaseRegion(region)
 
         async with AsyncBrowserbase(api_key=api_key) as client:
+            if extension_cache is not None:
+                create_kwargs["extension_id"] = await _ensure_extension_id(
+                    client, api_key, extension_cache
+                )
             session = await client.sessions.create(**create_kwargs)
             connect_url = getattr(session, "connect_url", None)
             if not connect_url:
@@ -161,6 +171,29 @@ class StagehandDriver:
         except Exception:
             # Closing must never mask the real outcome of a run.
             pass
+
+
+async def _ensure_extension_id(client, api_key: str, cache_dir: Path) -> str:
+    """Stagehand's extension id on Browserbase, uploading it once per project.
+
+    Browserbase only allows extensions installed through its own API, so the
+    archive Stagehand ships is uploaded and the resulting id cached in the
+    data directory; later sessions just reference it.
+    """
+    from stagehand.browserbase_session import build_extension_archive
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / "browserbase_extension_id"
+    if cache_file.exists():
+        cached = cache_file.read_text(encoding="utf-8").strip()
+        if cached:
+            return cached
+    archive = build_extension_archive()
+    extension = await client.extensions.create(
+        file=("stagehand-extension.zip", archive, "application/zip")
+    )
+    cache_file.write_text(extension.id, encoding="utf-8")
+    return extension.id
 
 
 def _fetch_connect_url(api_key: str, session_id: str) -> str:

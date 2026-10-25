@@ -147,11 +147,13 @@ async def _open_driver(local_browser: bool) -> StagehandDriver:
     llm = _stagehand_llm()
     if _browser_choice(local_browser):
         return await StagehandDriver.create_local(llm)
+    config, _ = _RUNTIME.get()
     return await StagehandDriver.create_browserbase(
         llm,
         api_key=env_required("BROWSERBASE_API_KEY", "real browser runs"),
         project_id=env_required("BROWSERBASE_PROJECT_ID", "real browser runs"),
         region=env_str("BROWSERBASE_REGION", "eu-central-1") or None,
+        extension_cache=config.data_dir,
     )
 
 
