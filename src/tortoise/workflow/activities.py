@@ -21,12 +21,13 @@ from temporalio import activity
 
 from ..brief import BriefItem, BriefWriter, budget_document_texts
 from ..config import AppConfig, env_required, env_str, load_config
+from ..cost import compute_cost
 from ..crawl.crawler import WeeklyListCrawler
 from ..crawl.driver import StagehandDriver
 from ..crawl.llm_adapter import OpenAICompatLLM
 from ..gemma import RELEVANCE_KEEP_AT_OR_ABOVE, FilterParseError, GemmaFilter
 from ..mailer import BrevoSender, build_email
-from ..models import UNFILTERED_TYPE, Application, FilterResult, RunNumbers
+from ..models import UNFILTERED_TYPE, Application, FilterResult, RunNumbers, TokenUsage
 from ..storage import Database, pdf_dir
 from .messages import (
     ApplicationRow,
@@ -78,11 +79,22 @@ _RUNTIME = _Runtime()
 
 
 async def _apply_test_delay() -> None:
-    """Failure test 6: make the council site appear slow."""
+    """Failure test 6: the council site is slow, then recovers.
+
+    On an activity's first attempt the flag stalls it — before any browser
+    session opens, so the stall costs no browser minutes — for longer than
+    its heartbeat timeout. Temporal times the attempt out and retries; the
+    retry runs at normal speed and the run finishes. After the stall the
+    attempt heartbeats once: Temporal answers a timed-out attempt with a
+    cancellation, so the stale attempt stops here instead of crawling twice.
+    """
     delay_ms = int(env_str(TEST_CRAWL_DELAY_MS, "0") or 0)
-    if delay_ms > 0:
-        activity.logger.info("test flag %s set: delaying %d ms", TEST_CRAWL_DELAY_MS, delay_ms)
-        await asyncio.sleep(delay_ms / 1000.0)
+    if delay_ms <= 0 or activity.info().attempt > 1:
+        return
+    activity.logger.info("test flag %s set: stalling %d ms", TEST_CRAWL_DELAY_MS, delay_ms)
+    await asyncio.sleep(delay_ms / 1000.0)
+    activity.heartbeat(0)
+    await asyncio.sleep(5)
 
 
 def _to_row(application: Application) -> ApplicationRow:
@@ -143,8 +155,25 @@ def _stagehand_llm() -> OpenAICompatLLM:
     return OpenAICompatLLM(base_url=base_url, api_key=api_key, model=model)
 
 
-async def _open_driver(local_browser: bool) -> StagehandDriver:
-    llm = _stagehand_llm()
+def _log_driving_cost(
+    db: Database, council: str, week: str, llm: OpenAICompatLLM
+) -> tuple[TokenUsage, float]:
+    """Log what driving the browser cost; return what the run should count.
+
+    Deterministic selectors mean most crawls make no driving calls at all;
+    when the LLM fallback does run on a paid model, every token lands in the
+    costs table and in the run's totals. A local model is logged at $0 and
+    kept out of the paid totals.
+    """
+    if llm.calls == 0:
+        return TokenUsage(), 0.0
+    paid = llm.model.startswith("ultramarine")
+    cost = float(compute_cost(llm.usage)) if paid else 0.0
+    db.log_cost(council, week, call="stagehand", model=llm.model, usage=llm.usage, cost_usd=cost)
+    return (llm.usage if paid else TokenUsage()), cost
+
+
+async def _open_driver(local_browser: bool, llm: OpenAICompatLLM) -> StagehandDriver:
     if _browser_choice(local_browser):
         return await StagehandDriver.create_local(llm)
     config, _ = _RUNTIME.get()
@@ -197,22 +226,35 @@ async def crawl_list(params: CrawlListParams) -> CrawlListResult:
         activity.logger.info("resuming crawl from page %d", resume_page)
 
     async def on_page(page_number: int) -> None:
+        # Store this page's rows *before* heartbeating it: a crash after the
+        # heartbeat must never lose rows the resume will skip.
+        for application in crawler.applications_so_far():
+            db.upsert_application(application, params.week)
         activity.heartbeat(page_number)
+        activity.logger.info("crawled results page %d", page_number)
 
-    driver = await _open_driver(params.local_browser)
+    llm = _stagehand_llm()
+    driver = await _open_driver(params.local_browser, llm)
     try:
         crawler = WeeklyListCrawler(driver, council, on_page=on_page, start_page=resume_page)
         outcome = await crawler.crawl_list()
     finally:
         await driver.close()
+    if driver.session_id:
+        activity.logger.info("browserbase session %s released", driver.session_id)
 
     for application in outcome.applications:
         db.upsert_application(application, params.week)
+    usage, cost = _log_driving_cost(db, council.slug, params.week, llm)
     stored = db.applications_for_week(council.slug, params.week)
     return CrawlListResult(
         applications=[_to_row(app) for app in stored],
         pages_read=outcome.pages_read,
         browser_seconds=outcome.browser_seconds,
+        input_tokens=usage.input_tokens,
+        cached_tokens=usage.cached_tokens,
+        output_tokens=usage.output_tokens,
+        cost_usd=cost,
     )
 
 
@@ -226,7 +268,8 @@ async def fetch_application(params: FetchParams) -> FetchResult:
         raise KeyError(f"{params.reference} is not stored for {council.slug} {params.week}")
     application = stored[params.reference]
 
-    driver = await _open_driver(params.local_browser)
+    llm = _stagehand_llm()
+    driver = await _open_driver(params.local_browser, llm)
     try:
         crawler = WeeklyListCrawler(driver, council)
         outcome = await crawler.fetch_application(
@@ -239,6 +282,13 @@ async def fetch_application(params: FetchParams) -> FetchResult:
         db.set_comment_deadline(council.slug, application.reference, outcome.comment_deadline)
     for document in outcome.documents:
         db.save_document(document)
+    activity.logger.info(
+        "%s: deadline %s, %d documents read",
+        application.reference,
+        outcome.comment_deadline.isoformat() if outcome.comment_deadline else "not stated",
+        len(outcome.documents),
+    )
+    usage, cost = _log_driving_cost(db, council.slug, params.week, llm)
     return FetchResult(
         reference=application.reference,
         comment_deadline=(
@@ -247,6 +297,10 @@ async def fetch_application(params: FetchParams) -> FetchResult:
         documents=len(outcome.documents),
         pages_read=outcome.pages_read,
         browser_seconds=outcome.browser_seconds,
+        input_tokens=usage.input_tokens,
+        cached_tokens=usage.cached_tokens,
+        output_tokens=usage.output_tokens,
+        cost_usd=cost,
     )
 
 
@@ -320,10 +374,21 @@ async def write_brief(params: BriefParams) -> BriefOutcome:
         model=model,
     )
 
+    # Gemma's labels ride along, except on an unfiltered run (Ollama was
+    # down), where any stored label would be from an earlier run.
+    labels = db.filter_labels(council.slug) if params.use_filter_labels else {}
     items: list[BriefItem] = []
     for application in applications:
         documents = db.documents_for(council.slug, application.reference)
-        items.append(BriefItem(application=application, documents=documents))
+        label_type, label_line = labels.get(application.reference, ("", ""))
+        items.append(
+            BriefItem(
+                application=application,
+                documents=documents,
+                filter_type=label_type if label_type != UNFILTERED_TYPE else "",
+                filter_one_line=label_line,
+            )
+        )
 
     # Trim document texts so the whole request stays inside the token budget.
     all_texts = [document.text for item in items for document in item.readable_documents]

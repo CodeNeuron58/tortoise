@@ -51,6 +51,11 @@ class CrawlListResult:
     applications: list[ApplicationRow] = field(default_factory=list)
     pages_read: int = 0
     browser_seconds: float = 0.0
+    # Paid tokens spent driving the browser (zero when selectors suffice).
+    input_tokens: int = 0
+    cached_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
 
 
 @dataclass(slots=True, frozen=True)
@@ -60,6 +65,10 @@ class FetchResult:
     documents: int = 0
     pages_read: int = 0
     browser_seconds: float = 0.0
+    input_tokens: int = 0
+    cached_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
 
 
 @dataclass(slots=True, frozen=True)
@@ -155,6 +164,7 @@ class BriefParams:
     council: str
     week: str
     kept_references: list[str]
+    use_filter_labels: bool = True  # False on an unfiltered run
 
 
 @dataclass(slots=True, frozen=True)

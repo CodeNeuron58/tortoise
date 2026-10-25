@@ -110,3 +110,35 @@ def test_iso_week_label_format():
     assert label.startswith("20")
     assert "-W" in label
     assert len(label) == 8  # 2026-W43
+
+
+def test_slow_site_flag_stalls_only_the_first_attempt(monkeypatch):
+    import dataclasses
+    import time
+
+    monkeypatch.setenv("TORTOISE_TEST_CRAWL_DELAY_MS", "600000")
+    env = ActivityEnvironment()
+    env.info = dataclasses.replace(env.info, attempt=2)
+    started = time.monotonic()
+    asyncio.run(env.run(acts._apply_test_delay))
+    assert time.monotonic() - started < 1  # the retry runs at normal speed
+
+
+def test_driving_cost_is_logged_and_counted_only_when_paid(runtime):
+    from tortoise.crawl.llm_adapter import OpenAICompatLLM
+    from tortoise.models import TokenUsage
+
+    _, db = runtime.get()
+    paid = OpenAICompatLLM(base_url="http://127.0.0.1:9/v1", api_key="k", model="ultramarine-1-flash")
+    paid.calls, paid.usage = 2, TokenUsage(input_tokens=1_000_000, output_tokens=0)
+    usage, cost = acts._log_driving_cost(db, "west-suffolk", "2026-W43", paid)
+    assert usage.input_tokens == 1_000_000
+    assert cost == 0.15
+
+    local = OpenAICompatLLM(base_url="http://127.0.0.1:9/v1", api_key="k", model="gemma4:e4b")
+    local.calls, local.usage = 1, TokenUsage(input_tokens=500, output_tokens=50)
+    usage, cost = acts._log_driving_cost(db, "west-suffolk", "2026-W43", local)
+    assert (usage.input_tokens, cost) == (0, 0.0)  # free, and not "Ultramarine tokens"
+
+    unused = OpenAICompatLLM(base_url="http://127.0.0.1:9/v1", api_key="k", model="ultramarine-1-flash")
+    assert acts._log_driving_cost(db, "west-suffolk", "2026-W43", unused) == (TokenUsage(), 0.0)

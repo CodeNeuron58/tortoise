@@ -125,6 +125,7 @@ class WeeklyWatch:
         numbers.listed = len(crawl.applications)
         numbers.pages_read += crawl.pages_read
         numbers.browser_seconds += crawl.browser_seconds
+        _add_tokens(numbers, crawl)
 
         # 2. Zone filter: plain code.
         zone = WatchZone(
@@ -158,6 +159,7 @@ class WeeklyWatch:
             numbers.pdfs_read += fetch.documents
             numbers.pages_read += fetch.pages_read
             numbers.browser_seconds += fetch.browser_seconds
+            _add_tokens(numbers, fetch)
             if fetch.comment_deadline:
                 deadlines.append(fetch.comment_deadline)
             await workflow.sleep(INTER_APPLICATION_PAUSE)
@@ -203,7 +205,10 @@ class WeeklyWatch:
                     await workflow.execute_activity(
                         WRITE_BRIEF,
                         BriefParams(
-                            council=params.council, week=week, kept_references=kept_references
+                            council=params.council,
+                            week=week,
+                            kept_references=kept_references,
+                            use_filter_labels=not numbers.unfiltered,
                         ),
                         start_to_close_timeout=timedelta(minutes=10),
                         retry_policy=RetryPolicy(
@@ -216,10 +221,7 @@ class WeeklyWatch:
                     ),
                 )
                 brief_text = outcome.text
-                numbers.input_tokens = outcome.input_tokens
-                numbers.cached_tokens = outcome.cached_tokens
-                numbers.output_tokens = outcome.output_tokens
-                numbers.cost_usd = outcome.cost_usd
+                _add_tokens(numbers, outcome)
             else:
                 workflow.logger.info("the filter kept nothing this week")
         except ActivityError as err:
@@ -248,6 +250,14 @@ class WeeklyWatch:
         numbers.status = "completed"
         await _record(numbers)
         return numbers
+
+
+def _add_tokens(numbers: RunNumbers, result) -> None:
+    """Add one activity's paid tokens and dollars to the run's totals."""
+    numbers.input_tokens += result.input_tokens
+    numbers.cached_tokens += result.cached_tokens
+    numbers.output_tokens += result.output_tokens
+    numbers.cost_usd += result.cost_usd
 
 
 async def _record(numbers: RunNumbers) -> None:

@@ -31,6 +31,9 @@ from stagehand._generated.models import (
     LLMStructuredGenerateResult,
 )
 
+from ..cost import usage_from_response
+from ..models import TokenUsage
+
 logger = logging.getLogger(__name__)
 
 # Keys Stagehand's own extraction protocol may add around the data; the real
@@ -44,6 +47,10 @@ class OpenAICompatLLM:
     def __init__(self, base_url: str, api_key: str, model: str, timeout: float = 120.0) -> None:
         self.model = model
         self._client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=timeout, max_retries=1)
+        # Running token total across every call this adapter made, so the
+        # activity can log what driving the browser cost.
+        self.usage = TokenUsage()
+        self.calls = 0
 
     async def generate(
         self,
@@ -59,6 +66,13 @@ class OpenAICompatLLM:
             response_format={"type": "json_object"} if wants_json else None,
         )
         text = response.choices[0].message.content or ""
+        counted = usage_from_response(response)
+        self.calls += 1
+        self.usage = TokenUsage(
+            input_tokens=self.usage.input_tokens + counted.input_tokens,
+            cached_tokens=self.usage.cached_tokens + counted.cached_tokens,
+            output_tokens=self.usage.output_tokens + counted.output_tokens,
+        )
         usage = LLMUsage(
             input_tokens=getattr(response.usage, "prompt_tokens", 0) or 0,
             output_tokens=getattr(response.usage, "completion_tokens", 0) or 0,
