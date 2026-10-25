@@ -248,7 +248,8 @@ class StagehandDriver:
 
         js = (
             "async (" + _json.dumps(url) + ") => {"
-            " const resp = await fetch(url);"
+            " const target = new URL(url, location.href).href;"
+            " const resp = await fetch(target);"
             " if (!resp.ok) { return {error: 'HTTP ' + resp.status}; }"
             " const buf = await resp.arrayBuffer();"
             " const bytes = new Uint8Array(buf);"
@@ -403,11 +404,20 @@ _IDOX_DOCUMENTS_JS = """\
   const docs = Array.from(table.rows).slice(1).map((tr) => {
     const cells = Array.from(tr.cells || [])
       .map((c) => (c.textContent || '').replace(/[\\s]+/g, ' ').trim())
-      .filter((t) => t.length > 0 && t !== 'View');
+      .filter((t) => t.length > 0 && t !== 'View' && !/^select this document$/i.test(t)
+              && !/^\\d{1,2} [A-Za-z]{3,9} \\d{4}$/.test(t));
     const links = Array.from(tr.querySelectorAll('a'))
       .map((a) => a.getAttribute('href') || '')
-      .filter((h) => h.indexOf('orderBy') === -1 && h.length > 0);
-    return { name: cells.join(' '), url: links[0] || '' };
+      .filter((h) => h.length > 1 && h.charAt(0) !== '#'
+              && h.indexOf('javascript') === -1 && h.indexOf('orderBy') === -1);
+    // Prefer the real download link: .pdf, documentDownload or files path.
+    const best = links.find((h) => h.toLowerCase().indexOf('.pdf') !== -1)
+      || links.find((h) => h.indexOf('documentDownload') !== -1)
+      || links.find((h) => h.indexOf('files') !== -1)
+      || links[0] || '';
+    let absolute = '';
+    if (best) { try { absolute = new URL(best, location.href).href; } catch (e) { absolute = best; } }
+    return { name: cells.join(' '), url: absolute };
   }).filter((d) => d.url);
   return { documents: docs };
 })()
