@@ -59,7 +59,8 @@ class StagehandDriver:
     ) -> "StagehandDriver":
         """Launch local Chrome — how Tortoise develops and tests, costing no quota."""
         browser = await local_browser.launch(headless=headless, executable_path=executable_path)
-        stagehand = await Stagehand.create(browser=browser, model={"generate": llm.generate})
+        # The callback is passed bare: Stagehand wraps it in its ClientLLM model itself.
+        stagehand = await Stagehand.create(browser=browser, model=llm.generate)
         page = await cls._first_page(stagehand)
         return cls(stagehand, page)
 
@@ -85,19 +86,19 @@ class StagehandDriver:
             cdp_url=f"wss://cdn.browserbase.com?sessionId={session.id}",
             headers={"x-bb-api-key": api_key},
         )
-        stagehand = await Stagehand.create(browser=browser, model={"generate": llm.generate})
+        # The callback is passed bare: Stagehand wraps it in its ClientLLM model itself.
+        stagehand = await Stagehand.create(browser=browser, model=llm.generate)
         page = await cls._first_page(stagehand)
         return cls(stagehand, page)
 
     @staticmethod
     async def _first_page(stagehand: Stagehand) -> Page:
-        pages = getattr(stagehand, "pages", None) or []
-        if pages:
-            return pages[0]
-        context = getattr(stagehand, "context", None)
+        context = getattr(stagehand.browser, "context", None)
         if context is not None:
-            return await context.new_page()
-        raise DriverError("Stagehand did not expose a page to drive")
+            page = await context.active_page()
+            if page is not None:
+                return page
+        raise DriverError("Stagehand did not expose an active page to drive")
 
     @property
     def seconds_in_browser(self) -> float:
