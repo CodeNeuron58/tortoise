@@ -177,8 +177,9 @@ class StagehandDriver:
         texts = list(_DIRECT_TEXTS.get(purpose, ()))
         if not selectors and not texts:
             return False
-        js = _CLICK_JS_TEMPLATE.format(
-            selectors=_json.dumps(selectors), texts=_json.dumps(texts)
+        js = (
+            _CLICK_JS_TEMPLATE.replace("__SELECTORS__", _json.dumps(selectors))
+            .replace("__TEXTS__", _json.dumps(texts))
         )
         try:
             result = await self._page.evaluate(js)
@@ -268,17 +269,17 @@ _DIRECT_TEXTS: dict[str, tuple[str, ...]] = {
 
 _CLICK_JS_TEMPLATE = """\
 (() => {
-  const selectors = {selectors};
-  const texts = {texts};
-  for (const s of selectors) {{
+  const selectors = __SELECTORS__;
+  const texts = __TEXTS__;
+  for (const s of selectors) {
     const el = document.querySelector(s);
-    if (el) {{ el.click(); return s; }}
-  }}
+    if (el) { el.click(); return s; }
+  }
   const candidates = document.querySelectorAll('a, button, input[type=submit]');
-  for (const el of candidates) {{
+  for (const el of candidates) {
     const label = (el.textContent || el.value || '').trim().toLowerCase();
-    if (texts.some((t) => label === t)) {{ el.click(); return 'text:' + label; }}
-  }}
+    if (texts.some((t) => label === t)) { el.click(); return 'text:' + label; }
+  }
   return null;
 })()
 """
