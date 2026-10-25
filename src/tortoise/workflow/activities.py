@@ -122,13 +122,25 @@ def _browser_choice(local_browser: bool) -> bool:
 
 
 def _stagehand_llm() -> OpenAICompatLLM:
-    # Local Ollama by default: the crawl costs nothing. Point these at a
-    # stronger OpenAI-compatible model if the local one can't drive a site.
-    return OpenAICompatLLM(
-        base_url=env_str("STAGEHAND_BASE_URL", "http://localhost:11434/v1"),
-        api_key=env_str("STAGEHAND_API_KEY", "ollama") or "ollama",
-        model=env_str("STAGEHAND_MODEL", "gemma4:e4b"),
-    )
+    """The model that drives Stagehand's act/extract calls.
+
+    Local Ollama by default (free), but as soon as an Ultramarine API key is
+    configured, the driving model upgrades to ultramarine-1-flash — a 4B local
+    model cannot reliably click through council portals, and driving costs
+    only pennies per weekly crawl. Explicit STAGEHAND_* variables always win.
+    """
+    ultramarine_key = env_str("ULTRAMARINE_API_KEY")
+    if ultramarine_key:
+        base_url = env_str("STAGEHAND_BASE_URL") or env_str(
+            "ULTRAMARINE_BASE_URL", "https://api.paperinstruments.com/v1"
+        )
+        api_key = env_str("STAGEHAND_API_KEY") or ultramarine_key
+        model = env_str("STAGEHAND_MODEL") or "ultramarine-1-flash"
+    else:
+        base_url = env_str("STAGEHAND_BASE_URL") or "http://localhost:11434/v1"
+        api_key = env_str("STAGEHAND_API_KEY") or "ollama"
+        model = env_str("STAGEHAND_MODEL") or "gemma4:e4b"
+    return OpenAICompatLLM(base_url=base_url, api_key=api_key, model=model)
 
 
 async def _open_driver(local_browser: bool) -> StagehandDriver:
