@@ -78,6 +78,9 @@ class FakeDriver:
     async def extract_idox_rows(self):
         return next(self._idox_pages)
 
+    async def extract_idox_documents(self):
+        return getattr(self, "idox_documents", {"documents": []})
+
     async def fetch_pdf(self, url):
         if getattr(self, "fail_session_fetch", False):
             raise DriverError("session fetch unavailable")

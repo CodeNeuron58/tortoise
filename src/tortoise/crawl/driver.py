@@ -49,6 +49,8 @@ class BrowserDriver(Protocol):
 
     async def extract_idox_rows(self) -> dict: ...
 
+    async def extract_idox_documents(self) -> dict: ...
+
     async def fetch_pdf(self, url: str) -> bytes: ...
 
     async def close(self) -> None: ...
@@ -221,6 +223,19 @@ class StagehandDriver:
         except Exception as exc:
             raise DriverError(f"could not parse the weekly list results: {exc}") from exc
 
+    async def extract_idox_documents(self) -> dict:
+        """Parse the documents table deterministically (no LLM).
+
+        The Idox documents table (``#Documents``) populates asynchronously,
+        so this waits for rows before parsing. Returns
+        ``{"documents": [{"name": ..., "url": ...}]}``.
+        """
+        try:
+            await self._page.wait_for_timeout(4000)
+            return await self._page.evaluate(_IDOX_DOCUMENTS_JS)
+        except Exception as exc:
+            raise DriverError(f"could not parse the documents table: {exc}") from exc
+
     async def fetch_pdf(self, url: str) -> bytes:
         """Download bytes from inside the browser session.
 
@@ -375,6 +390,26 @@ _IDOX_ROWS_JS = """\
   const next = Array.from(document.querySelectorAll('a'))
     .find((a) => /^next$/i.test((a.textContent || '').trim()));
   return { rows: rows, next_href: next ? next.getAttribute('href') : null };
+})()
+"""
+
+# Deterministic Idox documents-table parser. Columns vary slightly between
+# councils; the name is the joined cell text (type + description feed the
+# priority selector) and the URL is the row's non-sort anchor.
+_IDOX_DOCUMENTS_JS = """\
+(() => {
+  const table = document.querySelector('#Documents') || document.querySelector('table#Documents');
+  if (!table) { return { documents: [] }; }
+  const docs = Array.from(table.rows).slice(1).map((tr) => {
+    const cells = Array.from(tr.cells || [])
+      .map((c) => (c.textContent || '').replace(/[\\s]+/g, ' ').trim())
+      .filter((t) => t.length > 0 && t !== 'View');
+    const links = Array.from(tr.querySelectorAll('a'))
+      .map((a) => a.getAttribute('href') || '')
+      .filter((h) => h.indexOf('orderBy') === -1 && h.length > 0);
+    return { name: cells.join(' '), url: links[0] || '' };
+  }).filter((d) => d.url);
+  return { documents: docs };
 })()
 """
 

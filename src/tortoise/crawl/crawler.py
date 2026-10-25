@@ -262,11 +262,28 @@ class WeeklyListCrawler:
 
         await self._driver.goto(documents_url)
         outcome.pages_read += 1
-        docs = await self._driver.extract(
-            "Extract every document in this application's documents list: its name and its "
-            "link. Do not follow the links.",
-            DocumentsList,
-        )
+        # Deterministic parse first; the async-populating table defeated the
+        # LLM extractor more often than not. LLM only as fallback.
+        docs = DocumentsList(documents=[])
+        try:
+            parsed = await self._driver.extract_idox_documents()
+            from .schemas import DocumentLink as _Link
+
+            docs = DocumentsList(
+                documents=[
+                    _Link(name=d.get("name", ""), url=absolutise(d.get("url", ""), documents_url))
+                    for d in (parsed.get("documents", []) if isinstance(parsed, dict) else [])
+                    if d.get("url")
+                ]
+            )
+        except DriverError:
+            logger.warning("deterministic documents parse failed; trying the LLM")
+        if not docs.documents:
+            docs = await self._driver.extract(
+                "Extract every document in this application's documents list: its name and its "
+                "link. Do not follow the links.",
+                DocumentsList,
+            )
 
         chosen = select_documents(docs.documents)
         for link in chosen:
