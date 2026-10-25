@@ -264,6 +264,9 @@ async def gemma_filter(params: FilterParams) -> FilterSummary:
     started = time.monotonic()
     kept: list[str] = []
     applications = db.applications_for_week(council.slug, params.week)
+    if params.references:
+        wanted = set(params.references)
+        applications = [app for app in applications if app.reference in wanted]
     for index, application in enumerate(applications, start=1):
         try:
             result = await gemma.filter_application(application, council.zone)

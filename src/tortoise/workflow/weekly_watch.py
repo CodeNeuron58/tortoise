@@ -176,7 +176,11 @@ class WeeklyWatch:
                 FilterSummary,
                 await workflow.execute_activity(
                     GEMMA_FILTER,
-                    FilterParams(council=params.council, week=week),
+                    FilterParams(
+                        council=params.council,
+                        week=week,
+                        references=[row.reference for row in in_zone_rows],
+                    ),
                     start_to_close_timeout=timedelta(minutes=45),
                     heartbeat_timeout=timedelta(minutes=5),
                     retry_policy=_default_retry(),

@@ -174,12 +174,11 @@ class BriefWriter:
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
-                # Ultramarine-1-flash thinks before answering; the thinking
-                # tokens come out of this budget (verified live: a one-word
-                # answer spent ~30 thinking tokens). The brief itself is under
-                # 400 words, so 3000 leaves ample thinking headroom — unused
-                # headroom is never billed.
-                max_tokens=3000,
+                # Ultramarine-1-flash thinks before answering and thinking
+                # tokens come out of this budget; with many applications the
+                # reasoning alone can exceed a small cap (verified live: the
+                # brief came back empty at 3000 tokens with 17 apps).
+                max_tokens=8000,
             )
         except (AuthenticationError, PermissionDeniedError, NotFoundError) as exc:
             raise BriefAuthError(f"Ultramarine rejected the credentials or model: {exc}") from exc

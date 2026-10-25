@@ -145,6 +145,9 @@ class FetchParams:
 class FilterParams:
     council: str
     week: str
+    # Only the applications that survived the zone filter are scored —
+    # Gemma reads everything the zone kept, never the whole week's list.
+    references: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True, frozen=True)
