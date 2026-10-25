@@ -77,10 +77,36 @@ def test_scanned_documents_are_excluded_from_prompt():
     assert "real text" in prompt
 
 
-def test_no_documents_says_so():
+def test_no_documents_says_so_without_claiming_drawings():
     item = make_item(documents=[])
     prompt = build_prompt("zone", [item])
-    assert "none with readable text (drawings only)" in prompt
+    assert "none downloaded; rely on the council listing above" in prompt
+    assert "drawings" not in prompt
+
+
+def test_scans_only_say_drawings_or_scans():
+    item = make_item(documents=[make_document(name="plans.pdf", text="")])
+    prompt = build_prompt("zone", [item])
+    assert "drawings or scans only, no readable text" in prompt
+
+
+def test_prompt_carries_the_council_listing():
+    app = Application(
+        reference=APP.reference,
+        council=APP.council,
+        address=APP.address,
+        proposal="Single storey rear extension",
+        url=APP.url,
+        validated_on=date(2026, 10, 20),
+    )
+    prompt = build_prompt("zone", [BriefItem(application=app)])
+    assert "Proposal (council listing): Single storey rear extension" in prompt
+    assert "Validated: 20 October 2026" in prompt
+
+
+def test_prompt_forbids_naming_people():
+    prompt = build_prompt("zone", [make_item()])
+    assert "Never name applicants, agents or any other private individual." in prompt
 
 
 def test_budget_leaves_short_texts_alone():

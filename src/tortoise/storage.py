@@ -287,6 +287,15 @@ class Database:
                 ),
             )
 
+    def filter_labels(self, council: str) -> dict[str, tuple[str, str]]:
+        """Gemma's ``(type, one_line)`` per reference, for the brief."""
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT reference, type, one_line FROM filter_results WHERE council = ?",
+                (council,),
+            ).fetchall()
+        return {row["reference"]: (row["type"], row["one_line"]) for row in rows}
+
     def kept_references(self, council: str) -> set[str]:
         with self._connect() as db:
             rows = db.execute(

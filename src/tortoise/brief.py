@@ -44,11 +44,14 @@ _TRUNCATION_MARKER = "...[truncated to fit the budget]"
 _PROMPT_TEMPLATE = """\
 You write a weekly planning brief for residents of {zone}. For each \
 application give: what is proposed, in one line; why a neighbour might care, \
-using only facts from the documents; the comment deadline; and the link. \
-Write "not stated" when a fact is missing; never guess. Plain English, under \
-400 words. End with: "Nothing else this week needs your attention."
+using only facts from the council's listing and the documents below; the \
+comment deadline; and the link. Write "not stated" when a fact is missing; \
+never guess. Never name applicants, agents or any other private individual. \
+Plain English, under 400 words. End with: "Nothing else this week needs your \
+attention."
 
-Here are the applications and their documents:
+Here are the applications, each with the council's own listing and the text \
+of its documents:
 
 {applications}
 """
@@ -115,6 +118,8 @@ def build_prompt(zone_label: str, items: list[BriefItem]) -> str:
         lines = [
             f"## Application {app.reference}",
             f"Address: {app.address}",
+            f"Proposal (council listing): {app.proposal or 'not stated'}",
+            f"Validated: {app.validated_on.strftime('%d %B %Y') if app.validated_on else 'not stated'}",
             f"Comment deadline: {_deadline_text(app)}",
             f"Link: {app.url}",
         ]
@@ -128,8 +133,10 @@ def build_prompt(zone_label: str, items: list[BriefItem]) -> str:
             for document in readable:
                 lines.append(f"--- {document.filename} ---")
                 lines.append(document.text.strip() or "(no extractable text)")
+        elif item.documents:
+            lines.append("Documents: drawings or scans only, no readable text")
         else:
-            lines.append("Documents: none with readable text (drawings only)")
+            lines.append("Documents: none downloaded; rely on the council listing above")
         blocks.append("\n".join(lines))
 
     applications_text = "\n\n".join(blocks) if blocks else "(no applications this week)"
