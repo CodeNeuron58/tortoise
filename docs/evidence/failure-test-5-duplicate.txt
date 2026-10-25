@@ -1,2 +1,8 @@
+$ tortoise run-once --council west-suffolk --browserbase --week 2026-W44   # the week already ran
+starting a run for west-suffolk (week 2026-W44)
 error: Workflow execution already started
-starting a run for west-suffolk (week 2026-W44-final)
+(exit code 1)
+
+$ temporal workflow list --query "WorkflowId='watch-west-suffolk-2026-W44'"   # one execution, one email
+   Status            WorkflowId              Type        StartTime   
+  Completed  watch-west-suffolk-2026-W44  WeeklyWatch  2026-10-25 23:11 UTC

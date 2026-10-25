@@ -1,0 +1,10 @@
+created_at,council,week,call,model,input_tokens,cached_tokens,output_tokens,cost_usd
+2026-10-25T21:06:08+00:00,west-suffolk,2026-W44-brief2,brief,ultramarine-1-flash,273,0,1860,0.00097095
+2026-10-25T21:20:05+00:00,west-suffolk,2026-W44-full,brief,ultramarine-1-flash,273,0,2125,0.00110345
+2026-10-25T21:30:09+00:00,west-suffolk,2026-W44-docs,brief,ultramarine-1-flash,273,256,1398,0.00070923
+2026-10-25T21:44:49+00:00,west-suffolk,2026-W44-t4,brief,ultramarine-1-flash,273,0,1097,0.00058945
+2026-10-25T22:01:40+00:00,west-suffolk,2026-W44-t6,brief,ultramarine-1-flash,273,0,1622,0.00085195
+2026-10-25T23:15:53+00:00,west-suffolk,2026-W44,brief,ultramarine-1-flash,4187,0,2852,0.00205405
+2026-10-25T23:23:31+00:00,west-suffolk,2026-W44-t2,brief,ultramarine-1-flash,4187,4096,4194,0.00223353
+2026-10-25T23:30:27+00:00,west-suffolk,2026-W44-t1,brief,ultramarine-1-flash,4187,4096,2970,0.00162153
+2026-10-25T23:36:45+00:00,west-suffolk,2026-W44-slow,brief,ultramarine-1-flash,4187,4096,3392,0.00183253
