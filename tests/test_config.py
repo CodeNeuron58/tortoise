@@ -25,7 +25,10 @@ def test_load_shipped_council_config():
     assert sevenoaks.mode is CrawlMode.WEEKLY_LIST_PAGE
     assert sevenoaks.zone.postcode_sectors == ("TN13 1", "TN13 2")
 
-    assert len(config.enabled_councils()) == 2
+    # Both portals' robots.txt say Disallow: /, so both ship switched off.
+    assert config.enabled_councils() == []
+    with pytest.raises(ConfigError, match="disabled"):
+        config.enabled_council("west-suffolk")
 
 
 def test_unknown_council_gives_clear_error():

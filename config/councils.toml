@@ -6,9 +6,14 @@
 #   weekly_list_page  — a council that publishes a plain weekly list page;
 #                       set weekly_list_url.
 #
-# ALWAYS read the council's robots.txt and terms before enabling a real run.
-# If crawling the application pages is not allowed, disable the council here
-# and pick another one.
+# ALWAYS read the council's robots.txt and terms before enabling a council.
+# Nothing can start a run for a council with enabled = false.
+#
+# Both examples ship DISABLED. On 25 Oct 2026 (UTC) every reachable Idox Public
+# Access portal checked (West Suffolk, Sevenoaks and 12 more) served
+#     User-agent: *
+#     Disallow: /
+# so switch a council on only with that council's permission.
 
 [storage]
 # Where the SQLite database and downloaded PDFs live. Relative to where you
@@ -20,8 +25,8 @@ slug = "west-suffolk"
 name = "West Suffolk Council"
 mode = "idox_weekly_list"
 search_url = "https://planning.westsuffolk.gov.uk/online-applications/search.do?action=weeklyList"
-enabled = true
-notes = "Idox Public Access. Check robots.txt and terms before the first real run."
+enabled = false
+notes = "Idox Public Access. robots.txt (checked 2026-10-25): Disallow: / — enable only with the council's permission. Crawled for the 2026-W44 demo and failure tests."
 
 [council.zone]
 label = "Bury St Edmunds town (York Road area)"
@@ -33,10 +38,10 @@ slug = "sevenoaks"
 name = "Sevenoaks District Council"
 mode = "weekly_list_page"
 weekly_list_url = "https://www.sevenoaks.gov.uk/info/20013/planning_applications/12/weekly_planning_applications_list"
-enabled = true
-notes = "Publishes a weekly planning applications list page. Check robots.txt and terms before the first real run."
+enabled = false
+notes = "Example of the weekly_list_page mode, never run. The page links out to the Idox portal pa.sevenoaks.gov.uk, whose robots.txt (checked 2026-10-25) is Disallow: /."
 
 [council.zone]
-label = "Sevenoaks town centre (placeholder — edit me)"
+label = "Sevenoaks town centre (example zone)"
 streets = ["High Street", "London Road"]
 postcode_sectors = ["TN13 1", "TN13 2"]
