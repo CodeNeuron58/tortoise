@@ -28,3 +28,6 @@ docs/dev-post.md
 docs/build-plan.pdf
 docs/INSTALL-AND-SANITY-LOG.md
 captured_calls.json
+
+# Local demo video (uploaded separately, not versioned)
+demo/
