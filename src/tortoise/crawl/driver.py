@@ -69,9 +69,10 @@ class BrowserDriver(Protocol):
 # opens: evidence of a real run, and the raw footage for the demo video.
 CAPTURE_DIR_ENV = "TORTOISE_CAPTURE_DIR"
 
-# Browserbase ends a session on its own after this many seconds, as a
-# safety net; Tortoise releases every session explicitly long before.
-_SESSION_TIMEOUT_SECONDS = 900
+# Browserbase ends a session on its own after this many seconds — the crawl
+# activity's own 12-minute budget — so a session orphaned by a killed worker
+# cannot run on. Every normal run releases its sessions explicitly long before.
+_SESSION_TIMEOUT_SECONDS = 720
 
 # Largest document fetched through the session (base64 crosses CDP).
 _MAX_SESSION_FETCH_BYTES = 30 * 1024 * 1024
