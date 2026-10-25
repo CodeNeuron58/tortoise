@@ -193,7 +193,7 @@ async def _open_driver(local_browser: bool, llm: OpenAICompatLLM) -> StagehandDr
 async def get_council_settings(council_slug: str) -> CouncilSettings:
     """Fresh config values for the workflow (so config edits need no reinstall)."""
     config, _ = _RUNTIME.get()
-    council = config.council(council_slug)
+    council = config.enabled_council(council_slug)  # a scheduled run must not crawl a disabled council
     return CouncilSettings(
         slug=council.slug,
         name=council.name,

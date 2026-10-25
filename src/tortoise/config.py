@@ -36,6 +36,20 @@ class AppConfig:
         known = ", ".join(c.slug for c in self.councils)
         raise ConfigError(f"unknown council '{slug}' (configured: {known})")
 
+    def enabled_council(self, slug: str) -> Council:
+        """The council by slug, refusing one switched off in the config.
+
+        ``enabled = false`` is how a council whose robots.txt or terms do not
+        allow crawling stays off: nothing may start a run for it.
+        """
+        council = self.council(slug)
+        if not council.enabled:
+            raise ConfigError(
+                f"council '{slug}' is disabled in the config (enabled = false); "
+                "read its robots.txt and terms before enabling it"
+            )
+        return council
+
     def enabled_councils(self) -> list[Council]:
         return [c for c in self.councils if c.enabled]
 

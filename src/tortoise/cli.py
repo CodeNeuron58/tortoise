@@ -160,7 +160,7 @@ def _cmd_worker(args: argparse.Namespace) -> int:
 
 
 def _cmd_run_once(args: argparse.Namespace) -> int:
-    load_config().council(args.council)  # fail fast on unknown slugs, before any connect
+    load_config().enabled_council(args.council)  # fail fast, before any connect
     print(f"starting a run for {args.council} (week {args.week or '(this week)'})")
     numbers = asyncio.run(
         start_and_wait(
@@ -177,7 +177,7 @@ def _cmd_run_once(args: argparse.Namespace) -> int:
 
 
 def _cmd_schedule_add(args: argparse.Namespace) -> int:
-    load_config().council(args.council)  # fail fast on unknown slugs
+    load_config().enabled_council(args.council)  # fail fast on unknown or disabled
     sid = asyncio.run(schedule_module.install(args.council))
     print(f"schedule {sid} installed ({schedule_module.CRON} {schedule_module.TIME_ZONE})")
     return 0
