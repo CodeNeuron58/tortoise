@@ -16,7 +16,7 @@
   <a href="https://github.com/CodeNeuron58/tortoise/actions/workflows/ci.yml"><img src="https://github.com/CodeNeuron58/tortoise/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/license-MIT-1D4A36" alt="MIT license">
   <img src="https://img.shields.io/badge/cost-%240.002%20a%20week-1D4A36" alt="Costs about $0.002 a week">
-  <a href="https://dev.to/challenges/hacktoberfest-week3-2026-10-19"><img src="https://img.shields.io/badge/DEV-Hacktoberfest%202026-0A0A0A?logo=devdotto&logoColor=white" alt="DEV Hacktoberfest challenge"></a>
+  <a href="https://dev.to/code_neuron58/tortoise-a-slow-agent-that-reads-your-councils-planning-applications-so-you-dont-have-to-5akk"><img src="https://img.shields.io/badge/DEV-Read%20the%20post-0A0A0A?logo=devdotto&logoColor=white" alt="Read the DEV post"></a>
 </p>
 
 ## How it works
