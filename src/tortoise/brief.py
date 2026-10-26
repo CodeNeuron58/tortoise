@@ -22,6 +22,7 @@ pages, never from the model.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from decimal import Decimal
 
@@ -167,9 +168,9 @@ class BriefEntry:
 class Brief:
     """A parsed brief: structured entries, or just the raw text.
 
-    ``entries`` is empty when the reply was not the JSON asked for (or is a
-    plain-text brief from before the JSON format); the email then shows the
-    raw text instead of cards.
+    ``entries`` is empty when the reply was neither the JSON asked for nor a
+    markdown brief from before the JSON format; the email then shows the raw
+    text instead of cards.
     """
 
     entries: tuple[BriefEntry, ...]
@@ -210,6 +211,38 @@ def _json_object(raw: str) -> dict | None:
     return None
 
 
+# Briefs written before the JSON format (runs up to 2026-W44) are markdown:
+# one "## <address> — <reference>" section per application, with
+# "**Proposed:**" and "**Why a neighbour might care:**" lines.
+_LEGACY_SECTION = re.compile(r"^##\s+(?P<heading>.+?)\s+[—–-]\s+(?P<reference>[A-Za-z0-9][A-Za-z0-9/.\-]*)\s*$", re.M)
+_LEGACY_FIELD = re.compile(r"^\*\*(?P<label>[^*\n]+?):\*\*\s*(?P<value>.+?)\s*$", re.M)
+
+
+def _legacy_markdown(raw: str) -> tuple[list[BriefEntry], str | None]:
+    """Entries (and the closing line) of a pre-JSON markdown brief, if it is one."""
+    sections = list(_LEGACY_SECTION.finditer(raw))
+    entries: list[BriefEntry] = []
+    for index, section in enumerate(sections):
+        end = sections[index + 1].start() if index + 1 < len(sections) else len(raw)
+        fields = {
+            match.group("label").strip().lower(): match.group("value").strip()
+            for match in _LEGACY_FIELD.finditer(raw[section.end() : end])
+        }
+        entries.append(
+            BriefEntry(
+                reference=section.group("reference").strip(),
+                proposed=fields.get("proposed") or "not stated",
+                why_care=fields.get("why a neighbour might care") or "not stated",
+            )
+        )
+    closing = None
+    if sections:
+        paragraphs = [p.strip() for p in raw[sections[-1].end() :].split("\n\n") if p.strip()]
+        if paragraphs and not paragraphs[-1].startswith(("**", "#")):
+            closing = paragraphs[-1]
+    return entries, closing
+
+
 def parse_brief(raw: str) -> Brief:
     """Parse the model's reply; never raises (unparseable means unstructured)."""
     parsed = _json_object(raw)
@@ -227,6 +260,9 @@ def parse_brief(raw: str) -> Brief:
                 )
             )
         closing = str(parsed.get("closing") or DEFAULT_CLOSING).strip()
+    else:
+        entries, legacy_closing = _legacy_markdown(raw or "")
+        closing = legacy_closing or DEFAULT_CLOSING
     return Brief(entries=tuple(entries), closing=closing, raw=raw or "")
 
 

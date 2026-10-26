@@ -63,6 +63,28 @@ def test_parse_brief_never_raises_on_prose():
     assert brief.raw.startswith("# A brief")
 
 
+def test_parse_brief_reads_pre_json_markdown_briefs():
+    # The shape of the 2026-W44 brief, written before the JSON format.
+    raw = (
+        "# Weekly planning brief — York Road area, Bury St Edmunds\n\n"
+        "## 30 York Road — DC/26/1525/HH\n\n"
+        "**Proposed:** A single-storey rear extension.\n\n"
+        "**Why a neighbour might care:** It adds a side element.\n\n"
+        "**Comment deadline:** 14 November 2026.\n\n"
+        "**Link:** https://planning.example/DC-26-1525\n\n"
+        "## Wellington Villa, 3 Springfield Road — DC/26/1601/TCA\n\n"
+        "**Proposed:** A crown reduction of about five metres.\n\n"
+        "**Comment deadline:** 10 November 2026.\n\n"
+        "Nothing else this week needs your attention.\n"
+    )
+    brief = parse_brief(raw)
+    assert brief.structured
+    assert [entry.reference for entry in brief.entries] == ["DC/26/1525/HH", "DC/26/1601/TCA"]
+    assert brief.entry_for("DC/26/1525/HH").why_care == "It adds a side element."
+    assert brief.entry_for("DC/26/1601/TCA").why_care == "not stated"  # missing, never guessed
+    assert brief.closing == "Nothing else this week needs your attention."
+
+
 def test_parse_brief_fills_missing_fields_honestly():
     brief = parse_brief('{"applications": [{"reference": "R1"}]}')
     entry = brief.entry_for("R1")
