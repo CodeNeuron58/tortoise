@@ -94,7 +94,7 @@ cp .env.example .env        # fill in what you have; see the table below
 | `ULTRAMARINE_BASE_URL` / `ULTRAMARINE_API_KEY` / `ULTRAMARINE_MODEL` | writes the brief ($0.15/M in, $0.03/M cached, $0.50/M out) | [Paper Instruments docs](https://docs.paperinstruments.com/docs); Hacktoberfest gives $5 free credit |
 | `BREVO_API_KEY`, `BREVO_FROM_EMAIL`, `TORTOISE_TO_EMAIL` | sends the email (free plan) | [brevo.com](https://www.brevo.com) |
 | `TORTOISE_CAPTURE_DIR` | optional: a screenshot of every page a run opens | — |
-| `TORTOISE_LOGO_URL` | optional: the logo in the email header (a public URL, e.g. the raw GitHub URL of `assets/logo-email.png`) | — |
+| `TORTOISE_LOGO_URL` | optional: the logo in the email header (a public URL: `https://raw.githubusercontent.com/CodeNeuron58/tortoise/main/assets/logo-email.png`) | — |
 
 Then:
 
