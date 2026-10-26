@@ -12,10 +12,16 @@ counted and logged. Error model (mirrors the plan's failure test 3):
 
 The whole request is kept under about 60,000 tokens (the model takes
 131,072) by trimming document texts to a per-document budget.
+
+The reply is JSON — one entry per application, what is proposed and why a
+neighbour might care — so the email's layout never depends on the model's
+formatting, and deadlines and links always come from the council's own
+pages, never from the model.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from decimal import Decimal
 
@@ -43,12 +49,17 @@ _TRUNCATION_MARKER = "...[truncated to fit the budget]"
 
 _PROMPT_TEMPLATE = """\
 You write a weekly planning brief for residents of {zone}. For each \
-application give: what is proposed, in one line; why a neighbour might care, \
-using only facts from the council's listing and the documents below; the \
-comment deadline; and the link. Write "not stated" when a fact is missing; \
-never guess. Never name applicants, agents or any other private individual. \
-Plain English, under 400 words. End with: "Nothing else this week needs your \
-attention."
+application give: what is proposed, in one line; and why a neighbour might \
+care, using only facts from the council's listing and the documents below. \
+Write "not stated" when a fact is missing; never guess. Never name \
+applicants, agents or any other private individual. Plain English, under 400 \
+words in total. The comment deadline and the link are added from the \
+council's own pages, so do not repeat them.
+
+Reply with JSON only, exactly in this shape:
+{{"applications": [{{"reference": "<the application reference>", \
+"proposed": "<one line>", "why_care": "<one to three sentences>"}}], \
+"closing": "Nothing else this week needs your attention."}}
 
 Here are the applications, each with the council's own listing and the text \
 of its documents:
@@ -144,6 +155,82 @@ def build_prompt(zone_label: str, items: list[BriefItem]) -> str:
 
 
 @dataclass(slots=True, frozen=True)
+class BriefEntry:
+    """The model's words about one application."""
+
+    reference: str
+    proposed: str
+    why_care: str
+
+
+@dataclass(slots=True, frozen=True)
+class Brief:
+    """A parsed brief: structured entries, or just the raw text.
+
+    ``entries`` is empty when the reply was not the JSON asked for (or is a
+    plain-text brief from before the JSON format); the email then shows the
+    raw text instead of cards.
+    """
+
+    entries: tuple[BriefEntry, ...]
+    closing: str
+    raw: str
+
+    @property
+    def structured(self) -> bool:
+        return bool(self.entries)
+
+    def entry_for(self, reference: str) -> BriefEntry | None:
+        wanted = _norm_ref(reference)
+        for entry in self.entries:
+            if _norm_ref(entry.reference) == wanted:
+                return entry
+        return None
+
+
+DEFAULT_CLOSING = "Nothing else this week needs your attention."
+
+
+def _norm_ref(reference: str) -> str:
+    return "".join(ch for ch in (reference or "").upper() if ch.isalnum())
+
+
+def _json_object(raw: str) -> dict | None:
+    """The JSON object in a model reply, fences and stray prose tolerated."""
+    text = (raw or "").strip()
+    if text.startswith("```"):
+        text = "\n".join(line for line in text.splitlines() if not line.strip().startswith("```"))
+    for candidate in (text, text[text.find("{") : text.rfind("}") + 1]):
+        try:
+            parsed = json.loads(candidate)
+        except ValueError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def parse_brief(raw: str) -> Brief:
+    """Parse the model's reply; never raises (unparseable means unstructured)."""
+    parsed = _json_object(raw)
+    entries: list[BriefEntry] = []
+    closing = DEFAULT_CLOSING
+    if parsed is not None:
+        for item in parsed.get("applications") or []:
+            if not isinstance(item, dict) or not str(item.get("reference", "")).strip():
+                continue
+            entries.append(
+                BriefEntry(
+                    reference=str(item.get("reference", "")).strip(),
+                    proposed=str(item.get("proposed") or "not stated").strip(),
+                    why_care=str(item.get("why_care") or "not stated").strip(),
+                )
+            )
+        closing = str(parsed.get("closing") or DEFAULT_CLOSING).strip()
+    return Brief(entries=tuple(entries), closing=closing, raw=raw or "")
+
+
+@dataclass(slots=True, frozen=True)
 class BriefResult:
     """The brief and exactly what it cost."""
 
@@ -181,6 +268,7 @@ class BriefWriter:
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
+                response_format={"type": "json_object"},
                 # Ultramarine-1-flash thinks before answering and thinking
                 # tokens come out of this budget; with many applications the
                 # reasoning alone can exceed a small cap (verified live: the
@@ -203,13 +291,19 @@ class BriefWriter:
             raise BriefError("Ultramarine returned a malformed response") from exc
         if not text:
             raise BriefError("Ultramarine returned an empty brief")
+        if not parse_brief(text).structured:
+            # Retryable: JSON mode makes this rare, and a retry usually fixes it.
+            raise BriefError("Ultramarine's reply was not the JSON brief asked for")
 
         usage = usage_from_response(response)
         return BriefResult(text=text, usage=usage, cost_usd=compute_cost(usage))
 
 
 __all__ = [
+    "DEFAULT_CLOSING",
     "MAX_INPUT_TOKENS",
+    "Brief",
+    "BriefEntry",
     "BriefAuthError",
     "BriefError",
     "BriefItem",
@@ -217,4 +311,5 @@ __all__ = [
     "BriefWriter",
     "budget_document_texts",
     "build_prompt",
+    "parse_brief",
 ]

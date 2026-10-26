@@ -8,7 +8,9 @@ from tortoise.cli import _build_parser, main
 def test_every_command_is_present():
     parser = _build_parser()
     choices = parser._subparsers._group_actions[0].choices
-    assert set(choices) == {"init-db", "config-check", "worker", "run-once", "schedule", "runs"}
+    assert set(choices) == {
+        "init-db", "config-check", "worker", "run-once", "schedule", "runs", "email-preview",
+    }
 
 
 def test_run_once_defaults_to_local_chrome():

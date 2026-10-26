@@ -1,4 +1,4 @@
-"""SQLite persistence: applications, documents, filter results, runs, costs.
+"""SQLite persistence: applications, documents, filter results, briefs, runs, costs.
 
 Deliberately boring and dumb: every method is a small, idempotent upsert or
 select with no business logic. Idempotency is what makes failure test 1 pass
@@ -81,6 +81,15 @@ CREATE TABLE IF NOT EXISTS runs (
     cost_usd              REAL    NOT NULL DEFAULT 0,
     brief_skipped_reason  TEXT    NOT NULL DEFAULT '',
     unfiltered            INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (council, week)
+);
+
+CREATE TABLE IF NOT EXISTS briefs (
+    council    TEXT NOT NULL,
+    week       TEXT NOT NULL,
+    model      TEXT NOT NULL,
+    text       TEXT NOT NULL,
+    created_at TEXT NOT NULL,
     PRIMARY KEY (council, week)
 );
 
@@ -180,19 +189,16 @@ class Database:
                 "SELECT * FROM applications WHERE council = ? AND week = ? ORDER BY reference",
                 (council, week),
             ).fetchall()
-        return [
-            Application(
-                reference=row["reference"],
-                council=row["council"],
-                address=row["address"],
-                proposal=row["proposal"],
-                url=row["url"],
-                validated_on=_date_or_none(row["validated_on"]),
-                comment_deadline=_date_or_none(row["comment_deadline"]),
-                postcode=row["postcode"],
-            )
-            for row in rows
-        ]
+        return [_application_from_row(row) for row in rows]
+
+    def application(self, council: str, reference: str) -> Application | None:
+        """One stored application by reference, whatever week it was seen in."""
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM applications WHERE council = ? AND reference = ?",
+                (council, reference),
+            ).fetchone()
+        return _application_from_row(row) if row else None
 
     def has_completed_run(self, council: str, week: str) -> bool:
         """True when this council+week already ran to completion (dedup guard)."""
@@ -358,26 +364,36 @@ class Database:
             rows = db.execute(
                 "SELECT * FROM runs ORDER BY started_at DESC LIMIT ?", (limit,)
             ).fetchall()
-        return [
-            RunNumbers(
-                council=row["council"],
-                week=row["week"],
-                status=row["status"],
-                listed=row["listed"],
-                kept=row["kept"],
-                pdfs_read=row["pdfs_read"],
-                pages_read=row["pages_read"],
-                browser_seconds=row["browser_minutes"] * 60.0,
-                gemma_seconds=row["gemma_seconds"],
-                input_tokens=row["input_tokens"],
-                cached_tokens=row["cached_tokens"],
-                output_tokens=row["output_tokens"],
-                cost_usd=row["cost_usd"],
-                brief_skipped_reason=row["brief_skipped_reason"],
-                unfiltered=bool(row["unfiltered"]),
+        return [_run_from_row(row) for row in rows]
+
+    def run_numbers(self, council: str, week: str) -> RunNumbers | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM runs WHERE council = ? AND week = ?", (council, week)
+            ).fetchone()
+        return _run_from_row(row) if row else None
+
+    # --- briefs -----------------------------------------------------------
+
+    def save_brief(self, council: str, week: str, model: str, text: str) -> None:
+        """Keep the model's reply, so the email can be re-rendered without it."""
+        with self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO briefs (council, week, model, text, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(council, week) DO UPDATE SET
+                    model = excluded.model, text = excluded.text, created_at = excluded.created_at
+                """,
+                (council, week, model, text, _now()),
             )
-            for row in rows
-        ]
+
+    def brief_for(self, council: str, week: str) -> str | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT text FROM briefs WHERE council = ? AND week = ?", (council, week)
+            ).fetchone()
+        return row["text"] if row else None
 
     def log_cost(
         self, council: str, week: str, call: str, model: str, usage: TokenUsage, cost_usd: float
@@ -401,6 +417,39 @@ class Database:
                     _now(),
                 ),
             )
+
+
+def _application_from_row(row) -> Application:
+    return Application(
+        reference=row["reference"],
+        council=row["council"],
+        address=row["address"],
+        proposal=row["proposal"],
+        url=row["url"],
+        validated_on=_date_or_none(row["validated_on"]),
+        comment_deadline=_date_or_none(row["comment_deadline"]),
+        postcode=row["postcode"],
+    )
+
+
+def _run_from_row(row) -> RunNumbers:
+    return RunNumbers(
+        council=row["council"],
+        week=row["week"],
+        status=row["status"],
+        listed=row["listed"],
+        kept=row["kept"],
+        pdfs_read=row["pdfs_read"],
+        pages_read=row["pages_read"],
+        browser_seconds=row["browser_minutes"] * 60.0,
+        gemma_seconds=row["gemma_seconds"],
+        input_tokens=row["input_tokens"],
+        cached_tokens=row["cached_tokens"],
+        output_tokens=row["output_tokens"],
+        cost_usd=row["cost_usd"],
+        brief_skipped_reason=row["brief_skipped_reason"],
+        unfiltered=bool(row["unfiltered"]),
+    )
 
 
 def _date_or_none(iso: str | None):

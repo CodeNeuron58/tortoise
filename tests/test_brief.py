@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from tortoise.brief import BriefItem, budget_document_texts, build_prompt
+from tortoise.brief import BriefItem, budget_document_texts, build_prompt, parse_brief
 from tortoise.models import Application, ExtractedDocument
 
 APP = Application(
@@ -40,7 +40,33 @@ def test_prompt_contains_the_plan_instructions():
     prompt = build_prompt("Mill Road, Cambridge", [make_item()])
     assert 'Write "not stated" when a fact is missing; never guess' in prompt
     assert "Nothing else this week needs your attention." in prompt
-    assert "under 400 words" in prompt
+    assert "under 400" in prompt
+    assert "Reply with JSON only" in prompt
+    assert '"why_care"' in prompt
+
+
+def test_parse_brief_reads_the_json_reply():
+    raw = (
+        '```json\n{"applications": [{"reference": "DC/26/1525/HH", "proposed": "Rear extension",'
+        ' "why_care": "Brick walls."}], "closing": "Nothing else this week needs your attention."}\n```'
+    )
+    brief = parse_brief(raw)
+    assert brief.structured
+    entry = brief.entry_for("dc/26/1525/hh")  # references match loosely
+    assert entry is not None and entry.proposed == "Rear extension"
+    assert brief.closing == "Nothing else this week needs your attention."
+
+
+def test_parse_brief_never_raises_on_prose():
+    brief = parse_brief("# A brief in plain markdown\nNot JSON at all.")
+    assert not brief.structured
+    assert brief.raw.startswith("# A brief")
+
+
+def test_parse_brief_fills_missing_fields_honestly():
+    brief = parse_brief('{"applications": [{"reference": "R1"}]}')
+    entry = brief.entry_for("R1")
+    assert entry.proposed == "not stated" and entry.why_care == "not stated"
 
 
 def test_prompt_contains_zone_application_and_documents():

@@ -103,3 +103,23 @@ def test_cost_log_roundtrip(tmp_path):
     assert row[0] == "brief"
     assert row[1] == 1000
     assert abs(row[2] - 0.0005) < 1e-9
+
+
+def test_brief_and_run_numbers_roundtrip(tmp_path):
+    db = make_db(tmp_path)
+    assert db.brief_for("west-suffolk", "2026-W44") is None
+    db.save_brief("west-suffolk", "2026-W44", "ultramarine-1-flash", '{"applications": []}')
+    db.save_brief("west-suffolk", "2026-W44", "ultramarine-1-flash", '{"applications": [1]}')  # replaced
+    assert db.brief_for("west-suffolk", "2026-W44") == '{"applications": [1]}'
+
+    db.upsert_run(RunNumbers(council="west-suffolk", week="2026-W44", status="completed", listed=23, kept=2))
+    numbers = db.run_numbers("west-suffolk", "2026-W44")
+    assert (numbers.listed, numbers.kept, numbers.status) == (23, 2, "completed")
+    assert db.run_numbers("west-suffolk", "2026-W45") is None
+
+
+def test_application_lookup_by_reference(tmp_path):
+    db = make_db(tmp_path)
+    db.upsert_application(make_application("26/0001/FUL"), "2026-W43")
+    assert db.application("west-suffolk", "26/0001/FUL").address.startswith("14a Mill Rd")
+    assert db.application("west-suffolk", "nope") is None

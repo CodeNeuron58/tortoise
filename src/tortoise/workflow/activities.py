@@ -26,8 +26,8 @@ from ..crawl.crawler import WeeklyListCrawler
 from ..crawl.driver import StagehandDriver
 from ..crawl.llm_adapter import OpenAICompatLLM
 from ..gemma import RELEVANCE_KEEP_AT_OR_ABOVE, FilterParseError, GemmaFilter
-from ..mailer import BrevoSender, build_email
-from ..models import UNFILTERED_TYPE, Application, FilterResult, RunNumbers, TokenUsage
+from ..mailer import BrevoSender, EmailContent, build_email
+from ..models import UNFILTERED_TYPE, Application, Council, FilterResult, RunNumbers, TokenUsage
 from ..storage import Database, pdf_dir
 from .messages import (
     ApplicationRow,
@@ -400,6 +400,7 @@ async def write_brief(params: BriefParams) -> BriefOutcome:
             cursor += 1
 
     result = await writer.write_brief(council.zone.label, items)
+    db.save_brief(council.slug, params.week, model, result.text)
     db.log_cost(
         council.slug,
         params.week,
@@ -425,13 +426,13 @@ class BriefTestFailure(Exception):
 @activity.defn
 async def send_email(params: EmailParams) -> EmailResult:
     """Send the weekly email; the brief may legitimately be None (skipped)."""
-    content = build_email(
-        zone_label=params.zone_label,
-        numbers=params.numbers,
-        brief_text=params.brief_text,
-        earliest_deadline=(
-            date.fromisoformat(params.earliest_deadline) if params.earliest_deadline else None
-        ),
+    config, db = _RUNTIME.get()
+    content = compose_email(
+        db,
+        config.council(params.council),
+        params.numbers,
+        params.brief_text,
+        params.kept_references,
     )
     sender = BrevoSender(
         api_key=env_required("BREVO_API_KEY", "sending the email"),
@@ -441,6 +442,40 @@ async def send_email(params: EmailParams) -> EmailResult:
     )
     await sender.send(content)
     return EmailResult(subject=content.subject)
+
+
+def compose_email(
+    db: Database,
+    council: Council,
+    numbers: RunNumbers,
+    brief_text: str | None,
+    references: list[str],
+    logo_url: str | None = None,
+) -> EmailContent:
+    """The email for one run, from stored data — the activity and the
+    ``email-preview`` command build it the same way.
+
+    ``TORTOISE_LOGO_URL`` puts the logo in the header; it must be a public
+    URL (mail clients block embedded images), e.g. the raw GitHub URL of
+    ``assets/logo-email.png``.
+    """
+    applications = [app for ref in references if (app := db.application(council.slug, ref))]
+    labels = {
+        ref: label_type
+        for ref, (label_type, _) in db.filter_labels(council.slug).items()
+        if label_type and label_type != UNFILTERED_TYPE and not numbers.unfiltered
+    }
+    deadlines = [app.comment_deadline for app in applications if app.comment_deadline]
+    return build_email(
+        zone_label=council.zone.label,
+        numbers=numbers,
+        brief_text=brief_text,
+        earliest_deadline=min(deadlines) if deadlines else None,
+        applications=applications,
+        labels=labels,
+        council_name=council.name,
+        logo_url=env_str("TORTOISE_LOGO_URL") if logo_url is None else logo_url,
+    )
 
 
 @activity.defn

@@ -9,6 +9,9 @@ Everything the plan needs on the command line:
   wait for it (the demo path; uses local Chrome unless ``--browserbase``).
 * ``tortoise schedule add|remove|list`` — manage the Monday 07:00 crons.
 * ``tortoise runs`` — the Lazy Payoff log from recent runs.
+* ``tortoise email-preview --council west-suffolk --week 2026-W44`` — render
+  a past run's email to an HTML file (no crawl, no model call); ``--send``
+  mails it too.
 """
 
 from __future__ import annotations
@@ -85,6 +88,16 @@ def _build_parser() -> argparse.ArgumentParser:
     runs = sub.add_parser("runs", help="show recent runs (the Lazy Payoff log)")
     runs.add_argument("--limit", type=int, default=10)
     runs.set_defaults(func=_cmd_runs)
+
+    preview = sub.add_parser(
+        "email-preview",
+        help="render a past run's email to an HTML file (no crawl, no model call)",
+    )
+    preview.add_argument("--council", required=True)
+    preview.add_argument("--week", required=True, help="the week label the run used, e.g. 2026-W44")
+    preview.add_argument("--out", default=None, help="HTML file to write (default: in the data dir)")
+    preview.add_argument("--send", action="store_true", help="also send it to TORTOISE_TO_EMAIL")
+    preview.set_defaults(func=_cmd_email_preview)
 
     return parser
 
@@ -212,6 +225,56 @@ def _cmd_runs(args: argparse.Namespace) -> int:
         if run.brief_skipped_reason:
             print(f"    brief skipped: {run.brief_skipped_reason}")
     print("\n(* = unfiltered: Gemma was down, everything was kept)")
+    return 0
+
+
+def _cmd_email_preview(args: argparse.Namespace) -> int:
+    """Rebuild a recorded run's email from storage: nothing is crawled or paid for."""
+    import base64
+    from pathlib import Path
+
+    from .brief import parse_brief
+    from .workflow.activities import compose_email
+
+    config = load_config()
+    council = config.council(args.council)  # a disabled council is fine: nothing is crawled
+    database = Database(config.data_dir / "tortoise.db")
+    database.init_schema()
+    numbers = database.run_numbers(council.slug, args.week)
+    if numbers is None:
+        print(f"error: no run recorded for {council.slug} week {args.week} (see `tortoise runs`)",
+              file=sys.stderr)
+        return 1
+    brief_text = database.brief_for(council.slug, args.week)
+    references = [entry.reference for entry in parse_brief(brief_text).entries] if brief_text else []
+
+    # The file preview shows the logo even before it is hosted anywhere;
+    # a sent email needs TORTOISE_LOGO_URL (mail clients block embedded images).
+    logo_file = Path("assets/logo-email.png")
+    local_logo = env_str("TORTOISE_LOGO_URL")
+    if not local_logo and logo_file.is_file():
+        local_logo = "data:image/png;base64," + base64.b64encode(logo_file.read_bytes()).decode()
+    content = compose_email(database, council, numbers, brief_text, references, logo_url=local_logo)
+
+    out = Path(args.out) if args.out else config.data_dir / f"email-preview-{council.slug}-{args.week}.html"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(content.html, encoding="utf-8")
+    print(f"subject: {content.subject}")
+    print(f"wrote {out.resolve()}  (open it in a browser)")
+
+    if args.send:
+        from .config import env_required
+        from .mailer import BrevoSender
+
+        sendable = compose_email(database, council, numbers, brief_text, references)
+        sender = BrevoSender(
+            api_key=env_required("BREVO_API_KEY", "sending the email"),
+            from_email=env_required("BREVO_FROM_EMAIL", "sending the email"),
+            to_email=env_required("TORTOISE_TO_EMAIL", "sending the email"),
+            from_name=env_str("BREVO_FROM_NAME", "Tortoise") or "Tortoise",
+        )
+        asyncio.run(sender.send(sendable))
+        print(f"sent to {env_str('TORTOISE_TO_EMAIL')}")
     return 0
 
 

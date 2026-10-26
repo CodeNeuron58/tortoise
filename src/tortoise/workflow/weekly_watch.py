@@ -239,6 +239,7 @@ class WeeklyWatch:
                 numbers=numbers,
                 brief_text=brief_text,
                 earliest_deadline=earliest_deadline,
+                kept_references=kept_references,
             ),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(

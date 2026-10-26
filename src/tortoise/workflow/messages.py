@@ -175,3 +175,6 @@ class EmailParams:
     numbers: RunNumbers
     brief_text: str | None
     earliest_deadline: str | None = None
+    # The applications the email covers (kept by the filter, or all in-zone
+    # ones on an unfiltered run); their details come from storage.
+    kept_references: list[str] = field(default_factory=list)
