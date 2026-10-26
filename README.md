@@ -1,4 +1,6 @@
-# Tortoise
+<p align="center"><img src="assets/logo.png" alt="Tortoise logo: a tortoise whose shell is a folded street map" width="180"></p>
+
+<h1 align="center">Tortoise</h1>
 
 A slow, steady weekly agent that crawls a UK council's planning website, reads
 every new application's PDFs, and emails you a one-page brief: what is being
@@ -33,9 +35,12 @@ Every Monday morning (UK time), one Temporal workflow per council:
 5. **Brief** — Ultramarine 1 Flash reads the council's listing and the kept
    documents and writes the brief. The one paid step, a fraction of a cent,
    counted to the last token.
-6. **Email** — Brevo sends the brief with the run's numbers and exact cost in
-   the footer. If the brief was skipped (bad key, no credit), the email says
-   so instead of going silent.
+6. **Email** — Brevo sends a designed email: one card per application with
+   what is proposed, why a neighbour might care, the comment deadline (with a
+   countdown) and a link to the council's page, then the run's numbers and
+   exact cost. Deadlines and links come from the council's pages, never from
+   the model. If the brief was skipped (bad key, no credit), the email says so
+   instead of going silent.
 
 ```
 Temporal workflow (WeeklyWatch, one per council per week)
@@ -89,6 +94,7 @@ cp .env.example .env        # fill in what you have; see the table below
 | `ULTRAMARINE_BASE_URL` / `ULTRAMARINE_API_KEY` / `ULTRAMARINE_MODEL` | writes the brief ($0.15/M in, $0.03/M cached, $0.50/M out) | [Paper Instruments docs](https://docs.paperinstruments.com/docs); Hacktoberfest gives $5 free credit |
 | `BREVO_API_KEY`, `BREVO_FROM_EMAIL`, `TORTOISE_TO_EMAIL` | sends the email (free plan) | [brevo.com](https://www.brevo.com) |
 | `TORTOISE_CAPTURE_DIR` | optional: a screenshot of every page a run opens | — |
+| `TORTOISE_LOGO_URL` | optional: the logo in the email header (a public URL, e.g. the raw GitHub URL of `assets/logo-email.png`) | — |
 
 Then:
 
@@ -113,6 +119,9 @@ uv run tortoise schedule add --council <slug>
 
 # 6. The Lazy Payoff log
 uv run tortoise runs
+
+# 7. See any past run's email again — no crawl, no model call
+uv run tortoise email-preview --council <slug> --week <week label>   # add --send to mail it
 ```
 
 ## Choosing councils
@@ -166,7 +175,7 @@ pages read, browser minutes, Gemma seconds, tokens and dollars.
 The logic is tested offline so real browser minutes go only to real runs:
 
 ```bash
-uv run pytest         # 98 offline tests; no network, no Ollama, no browser
+uv run pytest         # 109 offline tests; no network, no Ollama, no browser
 ```
 
 The crawl flows run against a scripted fake browser (see
@@ -197,7 +206,8 @@ src/tortoise/
   workflow/        the Temporal workflow, activities, schedule, worker, CLI starter
 config/councils.toml   the one file you edit: councils + watch zones
 docs/failure-tests.md  the six failure tests and their results
-docs/evidence/         workflow histories, the real email, the cost log, screenshots
+docs/evidence/         workflow histories, the real email, the cost log
+assets/                the logo (README and email header)
 ```
 
 ## Status and honest notes
